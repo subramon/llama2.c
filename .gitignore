@@ -1,3 +1,7 @@
 *.o
 _*
 *.bin
+run
+runq
+run_ispc
+runq_ispc
