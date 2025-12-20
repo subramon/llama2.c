@@ -14,6 +14,10 @@
     #include <unistd.h>
     #include <sys/mman.h>
 #endif
+#include "consts.h"
+#include "macros.h"
+#include "rmsnorm.h"
+#include "softmax.h"
 // ----------------------------------------------------------------------------
 // Globals
 int GS = 0; // group size global for quantization of the weights
@@ -279,42 +283,7 @@ void free_transformer(Transformer* t) {
 // ----------------------------------------------------------------------------
 // neural net blocks; the dynamics of the Transformer
 
-void rmsnorm(float* o, float* x, float* weight, int size) {
-    // calculate sum of squares
-    float ss = 0.0f;
-    for (int j = 0; j < size; j++) {
-        ss += x[j] * x[j];
-    }
-    ss /= size;
-    ss += 1e-5f;
-    ss = 1.0f / sqrtf(ss);
-    // normalize and scale
-    for (int j = 0; j < size; j++) {
-        o[j] = weight[j] * (ss * x[j]);
-    }
-}
-
-void softmax(float* x, int size) {
-    // find max value (for numerical stability)
-    float max_val = x[0];
-    for (int i = 1; i < size; i++) {
-        if (x[i] > max_val) {
-            max_val = x[i];
-        }
-    }
-    // exp and sum
-    float sum = 0.0f;
-    for (int i = 0; i < size; i++) {
-        x[i] = expf(x[i] - max_val);
-        sum += x[i];
-    }
-    // normalize
-    for (int i = 0; i < size; i++) {
-        x[i] /= sum;
-    }
-}
-
-void matmul(float* xout, QuantizedTensor *x, QuantizedTensor *w, int n, int d) {
+void matmul_qt(float* xout, QuantizedTensor *x, QuantizedTensor *w, int n, int d) {
     // W (d,n) @ x (n,) -> xout (d,)
     // by far the most amount of time is spent inside this little function
     // inputs to this function are both quantized
@@ -365,9 +334,9 @@ float* forward(Transformer* transformer, int token, int pos) {
 
         // qkv matmuls for this position
         quantize(&s->xq, s->xb, dim);
-        matmul(s->q, &s->xq, w->wq + l, dim, dim);
-        matmul(s->k, &s->xq, w->wk + l, dim, kv_dim);
-        matmul(s->v, &s->xq, w->wv + l, dim, kv_dim);
+        matmul_qt(s->q, &s->xq, w->wq + l, dim, dim);
+        matmul_qt(s->k, &s->xq, w->wk + l, dim, kv_dim);
+        matmul_qt(s->v, &s->xq, w->wv + l, dim, kv_dim);
 
         // RoPE relative positional encoding: complex-valued rotate q and k in each head
         for (int i = 0; i < dim; i+=2) {
@@ -435,7 +404,7 @@ float* forward(Transformer* transformer, int token, int pos) {
 
         // final matmul to get the output of the attention
         quantize(&s->xq, s->xb, dim);
-        matmul(s->xb2, &s->xq, w->wo + l, dim, dim);
+        matmul_qt(s->xb2, &s->xq, w->wo + l, dim, dim);
 
         // residual connection back into x
         for (int i = 0; i < dim; i++) {
@@ -448,8 +417,8 @@ float* forward(Transformer* transformer, int token, int pos) {
         // Now for FFN in PyTorch we have: self.w2(F.silu(self.w1(x)) * self.w3(x))
         // first calculate self.w1(x) and self.w3(x)
         quantize(&s->xq, s->xb, dim);
-        matmul(s->hb, &s->xq, w->w1 + l, dim, hidden_dim);
-        matmul(s->hb2, &s->xq, w->w3 + l, dim, hidden_dim);
+        matmul_qt(s->hb, &s->xq, w->w1 + l, dim, hidden_dim);
+        matmul_qt(s->hb2, &s->xq, w->w3 + l, dim, hidden_dim);
 
         // SwiGLU non-linearity
         for (int i = 0; i < hidden_dim; i++) {
@@ -463,7 +432,7 @@ float* forward(Transformer* transformer, int token, int pos) {
 
         // final matmul to get the output of the ffn
         quantize(&s->hq, s->hb, hidden_dim);
-        matmul(s->xb, &s->hq, w->w2 + l, hidden_dim, dim);
+        matmul_qt(s->xb, &s->hq, w->w2 + l, hidden_dim, dim);
 
         // residual connection
         for (int i = 0; i < dim; i++) {
@@ -476,7 +445,7 @@ float* forward(Transformer* transformer, int token, int pos) {
 
     // classifier into logits
     quantize(&s->xq, x, dim);
-    matmul(s->logits, &s->xq, w->wcls, dim, p->vocab_size);
+    matmul_qt(s->logits, &s->xq, w->wcls, dim, p->vocab_size);
     return s->logits;
 }
 

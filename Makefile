@@ -3,7 +3,7 @@
 CC = gcc
 
 # the most basic way of building that is most likely to work on most systems
-all : run runq
+all : run runq run_ispc
 
 CFLAGS := -g -O0
 # CFLAGS := -O3
@@ -16,11 +16,30 @@ INCS := -I./inc/
 .c.o :
 	$(CC) -c -o $@ $< $(CFLAGS)  $(INCS)
 
-run: run.o 
-	$(CC) -o run run.o -lm
+ISPC_SRCS += rmsnorm_ispc.ispc 
+ISPC_SRCS += matmul_ispc.ispc 
+ISPC_SRCS += softmax_ispc.ispc 
 
-runq: runq.o 
-	$(CC) -o runq runq.o -lm
+SRCS += rmsnorm.c 
+SRCS += matmul.c 
+SRCS += softmax.c 
+
+OBJS  = $(SRCS:.c=.o)
+
+ISPC_OBJS  = $(ISPC_SRCS:.ispc=.o)
+
+rmsnorm_ispc.o : 
+	ispc rmsnorm_ispc.ispc -o rmsnorm_ispc.o 
+
+run: run.o  ${OBJS}
+	$(CC) -o run run.o ${OBJS}  -lm
+
+run_ispc: run.o  ${ISPC_OBJS}
+	echo ${ISPC_OBJS}
+	$(CC) -o run_ispc run.o ${ISPC_OBJS}  -lm
+
+runq: runq.o  ${OBJS}
+	$(CC) -o runq runq.o ${OBJS}  -lm
 
 
 # https://gcc.gnu.org/onlinedocs/gcc/Optimize-Options.html
