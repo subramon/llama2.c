@@ -8,7 +8,8 @@ rmsnorm(
     ) 
 {
   // TODO P2 assume(n % programCount == 0);
-  assert(n == sz); // TODO Undo this assumption
+  // assert(n == sz); // TODO Undo this assumption
+  // cannot do assert inside ispc code 
   // calculate sum of squares
   varying float v_ss = 0.0f; // varying accumulator 
   foreach ( j = 0 ... sz ) {

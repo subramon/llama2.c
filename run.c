@@ -252,7 +252,7 @@ float* forward(Transformer* transformer, int token, int pos) {
             }
         }
 
-        // multihead attention. iterate over all heads
+        // multihead attention. iterate over all heads in parallel
         int h;
         #pragma omp parallel for private(h)
         for (h = 0; h < p->n_heads; h++) {

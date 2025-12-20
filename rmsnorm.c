@@ -10,7 +10,6 @@ rmsnorm(
     int dummy // for parity with ISPC version
     ) 
 {
-  assert(dummy == 0);
   // calculate sum of squares
   float ss = 0.0f;
   for (int j = 0; j < n; j++) {

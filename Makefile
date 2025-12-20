@@ -18,7 +18,7 @@ INCS := -I./inc/
 
 ISPC_SRCS += rmsnorm_ispc.ispc 
 ISPC_SRCS += softmax_ispc.ispc 
-ISPC_SRCS += matmul_ispc.ispc 
+ISPC_SRCS += dot_prod_ispc.ispc 
 
 SRCS += rmsnorm.c 
 SRCS += matmul.c 
@@ -29,46 +29,48 @@ OBJS  = $(SRCS:.c=.o)
 ISPC_OBJS  = $(ISPC_SRCS:.ispc=.o)
 
 rmsnorm_ispc.o : 
-	ispc rmsnorm_ispc.ispc -o rmsnorm_ispc.o 
+	  ispc rmsnorm_ispc.ispc -o rmsnorm_ispc.o 
 
 softmax_ispc.o : 
 	ispc softmax_ispc.ispc -o softmax_ispc.o 
 
-run: run.o  ${OBJS}
-	$(CC) -o run run.o ${OBJS}  -lm
+dot_prod_ispc.o : 
+	ispc dot_prod_ispc.ispc -o dot_prod_ispc.o 
 
-run_ispc: run.o  ${ISPC_OBJS}
-	echo ${ISPC_OBJS}
-	$(CC) -o run_ispc run.o ${ISPC_OBJS}  -lm
+run: run.o  ${OBJS}
+	$(CC) -o run run.o ${OBJS}  -lm -lgomp
+
+run_ispc: run.o  ${ISPC_OBJS} matmul_ispc_wrap.o 
+	$(CC) -o run_ispc run.o ${ISPC_OBJS} matmul_ispc_wrap.o -lm -lgomp
 
 runq: runq.o  ${OBJS}
-	$(CC) -o runq runq.o ${OBJS}  -lm
+	$(CC) -o runq runq.o ${OBJS}  -lm -lgomp
 
 
-# https://gcc.gnu.org/onlinedocs/gcc/Optimize-Options.html
-# https://simonbyrne.github.io/notes/fastmath/
-# -Ofast enables all -O3 optimizations.
-# Disregards strict standards compliance.
-# It also enables optimizations that are not valid for all standard-compliant programs.
-# It turns on -ffast-math, -fallow-store-data-races and the Fortran-specific
-# -fstack-arrays, unless -fmax-stack-var-size is specified, and -fno-protect-parens.
-# It turns off -fsemantic-interposition.
-# In our specific application this is *probably* okay to use
+  # https://gcc.gnu.org/onlinedocs/gcc/Optimize-Options.html
+  # https://simonbyrne.github.io/notes/fastmath/
+  # -Ofast enables all -O3 optimizations.
+  # Disregards strict standards compliance.
+  # It also enables optimizations that are not valid for all standard-compliant programs.
+  # It turns on -ffast-math, -fallow-store-data-races and the Fortran-specific
+  # -fstack-arrays, unless -fmax-stack-var-size is specified, and -fno-protect-parens.
+  # It turns off -fsemantic-interposition.
+  # In our specific application this is *probably* okay to use
 
-# run all tests
-.PHONY: test
-test:
-	pytest
+  # run all tests
+  .PHONY: test
+  test:
+	  pytest
 
-# run only tests for run.c C implementation (is a bit faster if only C code changed)
-.PHONY: testc
-testc:
-	pytest -k runc
+  # run only tests for run.c C implementation (is a bit faster if only C code changed)
+  .PHONY: testc
+  testc:
+	  pytest -k runc
 
-# run the C tests, without touching pytest / python
-# to increase verbosity level run e.g. as `make testcc VERBOSITY=1`
-VERBOSITY ?= 0
-.PHONY: testcc
+  # run the C tests, without touching pytest / python
+  # to increase verbosity level run e.g. as `make testcc VERBOSITY=1`
+  VERBOSITY ?= 0
+  .PHONY: testcc
 testcc:
 	$(CC) -DVERBOSITY=$(VERBOSITY) -O3 -o testc test.c -lm
 	./testc
