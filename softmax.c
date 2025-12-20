@@ -14,9 +14,11 @@ softmax(
     }
   }
   // exp and sum
-  float sum = 0.0f;
   for (int i = 0; i < size; i++) {
     x[i] = expf(x[i] - max_val);
+  }
+  float sum = 0.0f;
+  for (int i = 0; i < size; i++) {
     sum += x[i];
   }
   // normalize

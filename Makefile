@@ -17,8 +17,8 @@ INCS := -I./inc/
 	$(CC) -c -o $@ $< $(CFLAGS)  $(INCS)
 
 ISPC_SRCS += rmsnorm_ispc.ispc 
-ISPC_SRCS += matmul_ispc.ispc 
 ISPC_SRCS += softmax_ispc.ispc 
+ISPC_SRCS += matmul_ispc.ispc 
 
 SRCS += rmsnorm.c 
 SRCS += matmul.c 
@@ -30,6 +30,9 @@ ISPC_OBJS  = $(ISPC_SRCS:.ispc=.o)
 
 rmsnorm_ispc.o : 
 	ispc rmsnorm_ispc.ispc -o rmsnorm_ispc.o 
+
+softmax_ispc.o : 
+	ispc softmax_ispc.ispc -o softmax_ispc.o 
 
 run: run.o  ${OBJS}
 	$(CC) -o run run.o ${OBJS}  -lm

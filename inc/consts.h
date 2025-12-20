@@ -1,1 +1,1 @@
-#define NUM_FP32_VEC_REG 4 
+#define NUM_FP32_IN_VEC_REG 4 

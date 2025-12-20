@@ -43,7 +43,7 @@
 \label{rmsnorm}
 
 Arguments in Table~\ref{args_rmsnorm}
-  \begin{table}[b]
+  \begin{table}[hbtp]
     \centering
     \begin{tabular}{|l||l|l|} \hline \hline
       {\bf Argument} & {\bf Type}  \\ \hline 
@@ -57,5 +57,38 @@ Arguments in Table~\ref{args_rmsnorm}
 
       \label{args_rmsnorm}
   \end{table}
+
+  \be
+\item \(s_1 = \sum_{i=0}^{i=n-1} x_i \times x_i\)
+\item \(s_2 = s_1 / n\)
+\item \(s_3 = s_2 + \epsilon\)
+\item \(s = \frac{1}{s_3}\)
+\item \(\forall_{i=0}^{i=n-1} o_i \leftarrow s \times w_i \times x_i\)
+  \ee
+
+  \clearpage
+\subsection{softmax}
+\label{softmax}
+
+Arguments in Table~\ref{args_softmax}
+  \begin{table}[hbtp]
+    \centering
+    \begin{tabular}{|l||l|l|} \hline \hline
+      {\bf Argument} & {\bf Type}  \\ \hline 
+      \(x\) & {\tt float} vector of length \(n\) \\ \hline
+      \(n\) & integer \\ \hline
+    \hline
+    \end{tabular}
+      \caption{Arguments for softmax}
+
+      \label{args_softmax}
+  \end{table}
+
+  \be
+\item \(m = {\mathrm max}_{i=0}^{i=n-1} x_i\)
+\item \(\forall_{i=0}^{i=n-1} x_i \leftarrow e^{x_i - m}\)
+\item \(s = \sum_{i=0}^{i=n-1} x_i\)
+\item \(\forall_{i=0}^{i=n-1} x_i \leftarrow \frac{x_i}{s}\)
+  \ee
 \end{document}
 

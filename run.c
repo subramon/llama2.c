@@ -1,7 +1,9 @@
 /* Inference for Llama-2 Transformer model in pure C */
 
+#undef ISPC 
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdint.h>
 #include <ctype.h>
 #include <time.h>
 #include <math.h>
@@ -18,6 +20,8 @@
 #include "matmul.h"
 #include "rmsnorm.h"
 #include "softmax.h"
+
+int ispc_dim; // need to figure out where to put this 
 // ----------------------------------------------------------------------------
 // Transformer model
 
@@ -82,14 +86,27 @@ typedef struct {
 void malloc_run_state(RunState* s, Config* p) {
     // we calloc instead of malloc to keep valgrind happy
     int kv_dim = (p->dim * p->n_kv_heads) / p->n_heads;
-    s->x = calloc(p->dim, sizeof(float));
-    s->xb = calloc(p->dim, sizeof(float));
-    s->xb2 = calloc(p->dim, sizeof(float));
+    // over-allocate to get stuff to align for ISPC
+    ispc_dim = ( p->dim / NUM_FP32_IN_VEC_REG ) * NUM_FP32_IN_VEC_REG;
+    if  ( ispc_dim != p->dim  ) { 
+      ispc_dim += NUM_FP32_IN_VEC_REG; 
+    }
+
+    s->x = calloc(ispc_dim, sizeof(float));
+    s->xb = calloc(ispc_dim, sizeof(float));
+    s->xb2 = calloc(ispc_dim, sizeof(float));
     s->hb = calloc(p->hidden_dim, sizeof(float));
     s->hb2 = calloc(p->hidden_dim, sizeof(float));
-    s->q = calloc(p->dim, sizeof(float));
-    s->key_cache = calloc(p->n_layers * p->seq_len * kv_dim, sizeof(float));
-    s->value_cache = calloc(p->n_layers * p->seq_len * kv_dim, sizeof(float));
+    s->q = calloc(ispc_dim, sizeof(float));
+    uint32_t cache_len = p->n_layers * p->seq_len * kv_dim;
+    uint32_t ispc_cache_len = 
+      ( cache_len / NUM_FP32_IN_VEC_REG ) * NUM_FP32_IN_VEC_REG;
+    if  ( ispc_cache_len != cache_len ) { 
+      ispc_cache_len += NUM_FP32_IN_VEC_REG;
+    }
+    s->key_cache = calloc(ispc_cache_len, sizeof(float));
+    s->value_cache = calloc(ispc_cache_len, sizeof(float));
+    // TOOD expand these guys as well 
     s->att = calloc(p->n_heads * p->seq_len, sizeof(float));
     s->logits = calloc(p->vocab_size, sizeof(float));
     // ensure all mallocs went fine
@@ -206,7 +223,7 @@ float* forward(Transformer* transformer, int token, int pos) {
     for(unsigned long long l = 0; l < p->n_layers; l++) {
 
         // attention rmsnorm
-        rmsnorm(s->xb, x, w->rms_att_weight + l*dim, dim);
+        rmsnorm(s->xb, x, w->rms_att_weight + l*dim, dim, ispc_dim);
 
         // key and value point to the kv cache
         int loff = l * p->seq_len * kv_dim; // kv cache layer offset for convenience
@@ -284,7 +301,7 @@ float* forward(Transformer* transformer, int token, int pos) {
         }
 
         // ffn rmsnorm
-        rmsnorm(s->xb, x, w->rms_ffn_weight + l*dim, dim);
+        rmsnorm(s->xb, x, w->rms_ffn_weight + l*dim, dim, ispc_dim);
 
         // Now for FFN in PyTorch we have: self.w2(F.silu(self.w1(x)) * self.w3(x))
         // first calculate self.w1(x) and self.w3(x)
@@ -311,7 +328,7 @@ float* forward(Transformer* transformer, int token, int pos) {
     }
 
     // final rmsnorm
-    rmsnorm(x, x, w->rms_final_weight, dim);
+    rmsnorm(x, x, w->rms_final_weight, dim, ispc_dim);
 
     // classifier into logits
     matmul(s->logits, x, w->wcls, p->dim, p->vocab_size);
