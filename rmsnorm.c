@@ -2,9 +2,9 @@
 #include "rmsnorm.h"
 void 
 rmsnorm(
-    float* o, 
-    float* x, 
-    float* weight, 
+    float*  restrict o, 
+    const float* const x, 
+    const float* const weight, 
     int size
     ) 
 {

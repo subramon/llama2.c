@@ -1,0 +1,61 @@
+\documentclass[letterpaper,12pt]{article}
+\usepackage{times}
+\usepackage{helvet}
+\usepackage{courier}
+\usepackage{fancyheadings}
+\usepackage{hyperref}
+\usepackage{xcolor}
+\pagestyle{fancy}
+\usepackage{graphicx}
+\usepackage{verbatim}
+\setlength\textwidth{6.5in}
+\setlength\textheight{8.5in}
+\newcommand{\TBC}{\framebox{\textbf{TO BE COMPLETED}}}
+\newtheorem{assumption}{Assumption}
+\newcommand{\be}{\begin{enumerate}}
+\newcommand{\ee}{\end{enumerate}}
+\newcommand{\bi}{\begin{itemize}}
+\newcommand{\ei}{\end{itemize}}
+\newcommand{\bd}{\begin{description}}
+\newcommand{\ed}{\end{description}}
+\newtheorem{notation}{Notation}
+\begin{document}
+\title{Karpathy Inference for Llama-2}
+\author{Ramesh Subramonian }
+\maketitle
+\thispagestyle{fancy}
+\lhead{}
+\chead{}
+\rhead{}
+% \lfoot{{\small Decision Sciences Team}}
+\cfoot{}
+\rfoot{{\small \thepage}}
+
+\begin{abstract}
+
+\ Step-by-step re-implementation of Karpathy code for llama2.
+
+\end{abstract}
+
+\section{Utilities}
+
+\subsection{rmsnorm}
+\label{rmsnorm}
+
+Arguments in Table~\ref{args_rmsnorm}
+  \begin{table}[b]
+    \centering
+    \begin{tabular}{|l||l|l|} \hline \hline
+      {\bf Argument} & {\bf Type}  \\ \hline 
+      \(o\) & {\tt float} vector of length \(n\) \\ \hline
+      \(x\) & {\tt float} vector of length \(n\) \\ \hline
+      \(w\) & {\tt float} vector of length \(n\) \\ \hline
+      \(n\) & integer \\ \hline
+    \hline
+    \end{tabular}
+      \caption{Arguments for rmsnorm}
+
+      \label{args_rmsnorm}
+  \end{table}
+\end{document}
+

@@ -5,3 +5,7 @@ run
 runq
 run_ispc
 runq_ispc
+*.log
+*.out
+*.aux
+*.dvi
