@@ -1,1 +1,1 @@
-#define NUM_FP32_IN_VEC_REG 4 
+#define FLOATS_IN_REG 4 

@@ -24,37 +24,8 @@
 int ispc_dim; // need to figure out where to put this 
 // ----------------------------------------------------------------------------
 // Transformer model
+#include "weights_file_layout.h"
 
-typedef struct {
-    int dim; // transformer dimension
-    int hidden_dim; // for ffn layers
-    int n_layers; // number of layers
-    int n_heads; // number of query heads
-    int n_kv_heads; // number of key/value heads (can be < query heads because of multiquery)
-    int vocab_size; // vocabulary size, usually 256 (byte-level)
-    int seq_len; // max sequence length
-} Config;
-
-typedef struct {
-    // token embedding table
-    float* token_embedding_table;    // (vocab_size, dim)
-    // weights for rmsnorms
-    float* rms_att_weight; // (layer, dim) rmsnorm weights
-    float* rms_ffn_weight; // (layer, dim)
-    // weights for matmuls. note dim == n_heads * head_size
-    float* wq; // (layer, dim, n_heads * head_size)
-    float* wk; // (layer, dim, n_kv_heads * head_size)
-    float* wv; // (layer, dim, n_kv_heads * head_size)
-    float* wo; // (layer, n_heads * head_size, dim)
-    // weights for ffn
-    float* w1; // (layer, hidden_dim, dim)
-    float* w2; // (layer, dim, hidden_dim)
-    float* w3; // (layer, hidden_dim, dim)
-    // final rmsnorm
-    float* rms_final_weight; // (dim,)
-    // (optional) classifier weights for the logits, on the last layer
-    float* wcls;
-} TransformerWeights;
 
 typedef struct {
     // current wave of activations
@@ -83,38 +54,57 @@ typedef struct {
     ssize_t file_size; // size of the checkpoint file in bytes
 } Transformer;
 
-void malloc_run_state(RunState* s, Config* p) {
-    // we calloc instead of malloc to keep valgrind happy
-    int kv_dim = (p->dim * p->n_kv_heads) / p->n_heads;
-    // over-allocate to get stuff to align for ISPC
-    ispc_dim = ( p->dim / NUM_FP32_IN_VEC_REG ) * NUM_FP32_IN_VEC_REG;
-    if  ( ispc_dim != p->dim  ) { 
-      ispc_dim += NUM_FP32_IN_VEC_REG; 
-    }
+int
+malloc_run_state(
+    RunState* s, 
+    Config* p
+    ) 
+{
+  int status = 0;
+  // we calloc instead of malloc to keep valgrind happy
+  // START: Get dimensions of various vectors we will allocate now 
+  int kv_dim = (p->dim * p->n_kv_heads) / p->n_heads;
+  uint32_t cache_len = p->n_layers * p->seq_len * kv_dim;
+  // STOP : Get dimensions of various vectors we will allocate now 
+  // START: over-allocate to get stuff to align for ISPC
+  ispc_dim = ( p->dim / FLOATS_IN_REG ) * FLOATS_IN_REG;
+  if  ( ispc_dim != p->dim  ) { 
+    ispc_dim += FLOATS_IN_REG; 
+  }
+  uint32_t ispc_vocab_size = ( p->vocab_size / FLOATS_IN_REG ) * FLOATS_IN_REG;
+  if  ( ispc_vocab_size != p->vocab_size  ) { 
+    ispc_vocab_size += FLOATS_IN_REG; 
+  }
+  uint32_t ispc_cache_len = 
+    ( cache_len / FLOATS_IN_REG ) * FLOATS_IN_REG;
+  if  ( ispc_cache_len != cache_len ) { 
+    ispc_cache_len += FLOATS_IN_REG;
+  }
+  uint32_t ispc_att_len = 
+    (p->n_heads * p->seq_len/FLOATS_IN_REG)*FLOATS_IN_REG;
+  if ( ispc_att_len != p->n_heads * p->seq_len ) {
+    ispc_att_len += FLOATS_IN_REG;
+  }
+  // STOP: over-allocate to get stuff to align for ISPC
 
-    s->x = calloc(ispc_dim, sizeof(float));
-    s->xb = calloc(ispc_dim, sizeof(float));
-    s->xb2 = calloc(ispc_dim, sizeof(float));
-    s->hb = calloc(p->hidden_dim, sizeof(float));
-    s->hb2 = calloc(p->hidden_dim, sizeof(float));
-    s->q = calloc(ispc_dim, sizeof(float));
-    uint32_t cache_len = p->n_layers * p->seq_len * kv_dim;
-    uint32_t ispc_cache_len = 
-      ( cache_len / NUM_FP32_IN_VEC_REG ) * NUM_FP32_IN_VEC_REG;
-    if  ( ispc_cache_len != cache_len ) { 
-      ispc_cache_len += NUM_FP32_IN_VEC_REG;
-    }
-    s->key_cache = calloc(ispc_cache_len, sizeof(float));
-    s->value_cache = calloc(ispc_cache_len, sizeof(float));
-    // TOOD expand these guys as well 
-    s->att = calloc(p->n_heads * p->seq_len, sizeof(float));
-    s->logits = calloc(p->vocab_size, sizeof(float));
-    // ensure all mallocs went fine
-    if (!s->x || !s->xb || !s->xb2 || !s->hb || !s->hb2 || !s->q
-     || !s->key_cache || !s->value_cache || !s->att || !s->logits) {
-        fprintf(stderr, "malloc failed!\n");
-        exit(EXIT_FAILURE);
-    }
+  s->x   = calloc(ispc_dim, sizeof(float));
+  s->xb  = calloc(ispc_dim, sizeof(float));
+  s->xb2 = calloc(ispc_dim, sizeof(float));
+  s->hb  = calloc(p->hidden_dim, sizeof(float));
+  s->hb2 = calloc(p->hidden_dim, sizeof(float));
+  s->q   = calloc(ispc_dim, sizeof(float));
+  s->key_cache   = calloc(ispc_cache_len, sizeof(float));
+  s->value_cache = calloc(ispc_cache_len, sizeof(float));
+  s->att    = calloc(ispc_att_len, sizeof(float));
+  s->logits = calloc(ispc_vocab_size, sizeof(float));
+  // ensure all mallocs went fine
+  if (!s->x || !s->xb || !s->xb2 || !s->hb || !s->hb2 || !s->q
+      || !s->key_cache || !s->value_cache || !s->att || !s->logits) {
+    fprintf(stderr, "malloc failed!\n");
+    go_BYE(-1); 
+  }
+BYE:
+  return status;
 }
 
 void free_run_state(RunState* s) {
@@ -130,64 +120,105 @@ void free_run_state(RunState* s) {
     free(s->value_cache);
 }
 
-void memory_map_weights(TransformerWeights *w, Config* p, float* ptr, int shared_weights) {
-    int head_size = p->dim / p->n_heads;
-    // make sure the multiplications below are done in 64bit to fit the parameter counts of 13B+ models
-    unsigned long long n_layers = p->n_layers;
-    w->token_embedding_table = ptr;
-    ptr += p->vocab_size * p->dim;
-    w->rms_att_weight = ptr;
-    ptr += n_layers * p->dim;
-    w->wq = ptr;
-    ptr += n_layers * p->dim * (p->n_heads * head_size);
-    w->wk = ptr;
-    ptr += n_layers * p->dim * (p->n_kv_heads * head_size);
-    w->wv = ptr;
-    ptr += n_layers * p->dim * (p->n_kv_heads * head_size);
-    w->wo = ptr;
-    ptr += n_layers * (p->n_heads * head_size) * p->dim;
-    w->rms_ffn_weight = ptr;
-    ptr += n_layers * p->dim;
-    w->w1 = ptr;
-    ptr += n_layers * p->dim * p->hidden_dim;
-    w->w2 = ptr;
-    ptr += n_layers * p->hidden_dim * p->dim;
-    w->w3 = ptr;
-    ptr += n_layers * p->dim * p->hidden_dim;
-    w->rms_final_weight = ptr;
-    ptr += p->dim;
-    ptr += p->seq_len * head_size / 2; // skip what used to be freq_cis_real (for RoPE)
-    ptr += p->seq_len * head_size / 2; // skip what used to be freq_cis_imag (for RoPE)
-    w->wcls = shared_weights ? w->token_embedding_table : ptr;
+void 
+memory_map_weights(
+    TransformerWeights *w, 
+    Config* p, 
+    float* ptr, 
+    int shared_weights
+    ) 
+{
+  int head_size = p->dim / p->n_heads;
+  // make sure the multiplications below are done in 64bit to fit the parameter counts of 13B+ models
+  unsigned long long n_layers = p->n_layers;
+  w->token_embedding_table = ptr;
+  ptr += p->vocab_size * p->dim;
+  w->rms_att_weight = ptr;
+  ptr += n_layers * p->dim;
+  w->wq = ptr;
+  ptr += n_layers * p->dim * (p->n_heads * head_size);
+  w->wk = ptr;
+  ptr += n_layers * p->dim * (p->n_kv_heads * head_size);
+  w->wv = ptr;
+  ptr += n_layers * p->dim * (p->n_kv_heads * head_size);
+  w->wo = ptr;
+  ptr += n_layers * (p->n_heads * head_size) * p->dim;
+  w->rms_ffn_weight = ptr;
+  ptr += n_layers * p->dim;
+  w->w1 = ptr;
+  ptr += n_layers * p->dim * p->hidden_dim;
+  w->w2 = ptr;
+  ptr += n_layers * p->hidden_dim * p->dim;
+  w->w3 = ptr;
+  ptr += n_layers * p->dim * p->hidden_dim;
+  w->rms_final_weight = ptr;
+  ptr += p->dim;
+  ptr += p->seq_len * head_size / 2; // skip what used to be freq_cis_real (for RoPE)
+  ptr += p->seq_len * head_size / 2; // skip what used to be freq_cis_imag (for RoPE)
+  w->wcls = shared_weights ? w->token_embedding_table : ptr;
 }
 
-void read_checkpoint(char* checkpoint, Config* config, TransformerWeights* weights,
-                     int* fd, float** data, ssize_t* file_size) {
-    FILE *file = fopen(checkpoint, "rb");
-    if (!file) { fprintf(stderr, "Couldn't open file %s\n", checkpoint); exit(EXIT_FAILURE); }
-    // read in the config header
-    if (fread(config, sizeof(Config), 1, file) != 1) { exit(EXIT_FAILURE); }
-    // negative vocab size is hacky way of signaling unshared weights. bit yikes.
-    int shared_weights = config->vocab_size > 0 ? 1 : 0;
-    config->vocab_size = abs(config->vocab_size);
-    // figure out the file size
-    fseek(file, 0, SEEK_END); // move file pointer to end of file
-    *file_size = ftell(file); // get the file size, in bytes
-    fclose(file);
-    // memory map the Transformer weights into the data pointer
-    *fd = open(checkpoint, O_RDONLY); // open in read only mode
-    if (*fd == -1) { fprintf(stderr, "open failed!\n"); exit(EXIT_FAILURE); }
-    *data = mmap(NULL, *file_size, PROT_READ, MAP_PRIVATE, *fd, 0);
-    if (*data == MAP_FAILED) { fprintf(stderr, "mmap failed!\n"); exit(EXIT_FAILURE); }
-    float* weights_ptr = *data + sizeof(Config)/sizeof(float);
-    memory_map_weights(weights, config, weights_ptr, shared_weights);
+int
+read_checkpoint(
+    char* checkpoint, 
+    Config* config, 
+    TransformerWeights* weights, 
+    int *ptr_fd, 
+    float **ptr_data, 
+    ssize_t *ptr_file_size
+    ) 
+{
+  int status = 0; 
+  int fd = -1;
+  float *data = NULL; 
+  ssize_t file_size = 0;
+
+  FILE *file = NULL;
+  file = fopen(checkpoint, "rb");
+  if (!file) { 
+    fprintf(stderr, "Couldn't open file %s\n", checkpoint); go_BYE(-1);
+  }
+  // read in the config header
+  if (fread(config, sizeof(Config), 1, file) != 1) { go_BYE(-1); }
+  // negative vocab size is hacky way of signaling unshared weights. bit yikes.
+  int shared_weights = config->vocab_size > 0 ? 1 : 0;
+  config->vocab_size = abs(config->vocab_size);
+  // figure out the file size
+  fseek(file, 0, SEEK_END); // move file pointer to end of file
+  file_size = ftell(file); // get the file size, in bytes
+  fclose(file);
+  // memory map the Transformer weights into the data pointer
+  fd = open(checkpoint, O_RDONLY); // open in read only mode
+  if ( fd == -1 ) { go_BYE(-1); } 
+
+  data = mmap(NULL, file_size, PROT_READ, MAP_PRIVATE, fd, 0);
+  if ( data == MAP_FAILED) { go_BYE(-1); }
+
+  float* weights_ptr = data + (sizeof(Config)/sizeof(float));
+  memory_map_weights(weights, config, weights_ptr, shared_weights);
+
+  *ptr_fd = fd;
+  *ptr_data = data;
+  *ptr_file_size = file_size;
+BYE:
+  return status;
 }
 
-void build_transformer(Transformer *t, char* checkpoint_path) {
-    // read in the Config and the Weights from the checkpoint
-    read_checkpoint(checkpoint_path, &t->config, &t->weights, &t->fd, &t->data, &t->file_size);
-    // allocate the RunState buffers
-    malloc_run_state(&t->state, &t->config);
+int
+build_transformer(
+    Transformer *t, 
+    char* checkpoint_path
+    ) 
+{
+  int status = 0;
+  // read in the Config and the Weights from the checkpoint
+  status = read_checkpoint(checkpoint_path, &t->config, 
+      &t->weights, &t->fd, &t->data, &t->file_size);
+  cBYE(status);
+  // allocate the RunState buffers
+  status = malloc_run_state(&t->state, &t->config); cBYE(status);
+BYE:
+  return status;
 }
 
 void free_transformer(Transformer* t) {
@@ -202,137 +233,142 @@ void free_transformer(Transformer* t) {
 // neural net blocks; the dynamics of the Transformer
 
 
-float* forward(Transformer* transformer, int token, int pos) {
+float* 
+forward(
+    Transformer* transformer, 
+    int token, 
+    int pos
+    ) 
+{
+  // a few convenience variables
+  Config* p = &transformer->config;
+  TransformerWeights* w = &transformer->weights;
+  RunState* s = &transformer->state;
+  float *x = s->x;
+  int dim = p->dim;
+  int kv_dim = (p->dim * p->n_kv_heads) / p->n_heads;
+  int kv_mul = p->n_heads / p->n_kv_heads; // integer multiplier of the kv sharing in multiquery
+  int hidden_dim =  p->hidden_dim;
+  int head_size = dim / p->n_heads;
 
-    // a few convenience variables
-    Config* p = &transformer->config;
-    TransformerWeights* w = &transformer->weights;
-    RunState* s = &transformer->state;
-    float *x = s->x;
-    int dim = p->dim;
-    int kv_dim = (p->dim * p->n_kv_heads) / p->n_heads;
-    int kv_mul = p->n_heads / p->n_kv_heads; // integer multiplier of the kv sharing in multiquery
-    int hidden_dim =  p->hidden_dim;
-    int head_size = dim / p->n_heads;
+  // copy the token embedding into x
+  float* content_row = w->token_embedding_table + token * dim;
+  memcpy(x, content_row, dim*sizeof(*x));
 
-    // copy the token embedding into x
-    float* content_row = w->token_embedding_table + token * dim;
-    memcpy(x, content_row, dim*sizeof(*x));
+  // forward all the layers
+  for(unsigned long long l = 0; l < p->n_layers; l++) {
 
-    // forward all the layers
-    for(unsigned long long l = 0; l < p->n_layers; l++) {
+    // attention rmsnorm
+    rmsnorm(s->xb, x, w->rms_att_weight + l*dim, dim, ispc_dim);
 
-        // attention rmsnorm
-        rmsnorm(s->xb, x, w->rms_att_weight + l*dim, dim, ispc_dim);
+    // key and value point to the kv cache
+    int loff = l * p->seq_len * kv_dim; // kv cache layer offset for convenience
+    s->k = s->key_cache + loff + pos * kv_dim;
+    s->v = s->value_cache + loff + pos * kv_dim;
 
-        // key and value point to the kv cache
-        int loff = l * p->seq_len * kv_dim; // kv cache layer offset for convenience
-        s->k = s->key_cache + loff + pos * kv_dim;
-        s->v = s->value_cache + loff + pos * kv_dim;
+    // qkv matmuls for this position
+    matmul(s->q, s->xb, w->wq + l*dim*dim, dim, dim);
+    matmul(s->k, s->xb, w->wk + l*dim*kv_dim, dim, kv_dim);
+    matmul(s->v, s->xb, w->wv + l*dim*kv_dim, dim, kv_dim);
 
-        // qkv matmuls for this position
-        matmul(s->q, s->xb, w->wq + l*dim*dim, dim, dim);
-        matmul(s->k, s->xb, w->wk + l*dim*kv_dim, dim, kv_dim);
-        matmul(s->v, s->xb, w->wv + l*dim*kv_dim, dim, kv_dim);
-
-        // RoPE relative positional encoding: complex-valued rotate q and k in each head
-        for (int i = 0; i < dim; i+=2) {
-            int head_dim = i % head_size;
-            float freq = 1.0f / powf(10000.0f, head_dim / (float)head_size);
-            float val = pos * freq;
-            float fcr = cosf(val);
-            float fci = sinf(val);
-            int rotn = i < kv_dim ? 2 : 1; // how many vectors? 2 = q & k, 1 = q only
-            for (int v = 0; v < rotn; v++) {
-                float* vec = v == 0 ? s->q : s->k; // the vector to rotate (query or key)
-                float v0 = vec[i];
-                float v1 = vec[i+1];
-                vec[i]   = v0 * fcr - v1 * fci;
-                vec[i+1] = v0 * fci + v1 * fcr;
-            }
-        }
-
-        // multihead attention. iterate over all heads in parallel
-        int h;
-        #pragma omp parallel for private(h)
-        for (h = 0; h < p->n_heads; h++) {
-            // get the query vector for this head
-            float* q = s->q + h * head_size;
-            // attention scores for this head
-            float* att = s->att + h * p->seq_len;
-            // iterate over all timesteps, including the current one
-            for (int t = 0; t <= pos; t++) {
-                // get the key vector for this head and at this timestep
-                float* k = s->key_cache + loff + t * kv_dim + (h / kv_mul) * head_size;
-                // calculate the attention score as the dot product of q and k
-                float score = 0.0f;
-                for (int i = 0; i < head_size; i++) {
-                    score += q[i] * k[i];
-                }
-                score /= sqrtf(head_size);
-                // save the score to the attention buffer
-                att[t] = score;
-            }
-
-            // softmax the scores to get attention weights, from 0..pos inclusively
-            softmax(att, pos + 1);
-
-            // weighted sum of the values, store back into xb
-            float* xb = s->xb + h * head_size;
-            memset(xb, 0, head_size * sizeof(float));
-            for (int t = 0; t <= pos; t++) {
-                // get the value vector for this head and at this timestep
-                float* v = s->value_cache + loff + t * kv_dim + (h / kv_mul) * head_size;
-                // get the attention weight for this timestep
-                float a = att[t];
-                // accumulate the weighted value into xb
-                for (int i = 0; i < head_size; i++) {
-                    xb[i] += a * v[i];
-                }
-            }
-        }
-
-        // final matmul to get the output of the attention
-        matmul(s->xb2, s->xb, w->wo + l*dim*dim, dim, dim);
-
-        // residual connection back into x
-        for (int i = 0; i < dim; i++) {
-            x[i] += s->xb2[i];
-        }
-
-        // ffn rmsnorm
-        rmsnorm(s->xb, x, w->rms_ffn_weight + l*dim, dim, ispc_dim);
-
-        // Now for FFN in PyTorch we have: self.w2(F.silu(self.w1(x)) * self.w3(x))
-        // first calculate self.w1(x) and self.w3(x)
-        matmul(s->hb, s->xb, w->w1 + l*dim*hidden_dim, dim, hidden_dim);
-        matmul(s->hb2, s->xb, w->w3 + l*dim*hidden_dim, dim, hidden_dim);
-
-        // SwiGLU non-linearity
-        for (int i = 0; i < hidden_dim; i++) {
-            float val = s->hb[i];
-            // silu(x)=x*σ(x), where σ(x) is the logistic sigmoid
-            val *= (1.0f / (1.0f + expf(-val)));
-            // elementwise multiply with w3(x)
-            val *= s->hb2[i];
-            s->hb[i] = val;
-        }
-
-        // final matmul to get the output of the ffn
-        matmul(s->xb, s->hb, w->w2 + l*dim*hidden_dim, hidden_dim, dim);
-
-        // residual connection
-        for (int i = 0; i < dim; i++) {
-            x[i] += s->xb[i];
-        }
+    // RoPE relative positional encoding: complex-valued rotate q and k in each head
+    for (int i = 0; i < dim; i+=2) {
+      int head_dim = i % head_size;
+      float freq = 1.0f / powf(10000.0f, head_dim / (float)head_size);
+      float val = pos * freq;
+      float fcr = cosf(val);
+      float fci = sinf(val);
+      int rotn = i < kv_dim ? 2 : 1; // how many vectors? 2 = q & k, 1 = q only
+      for (int v = 0; v < rotn; v++) {
+        float* vec = v == 0 ? s->q : s->k; // the vector to rotate (query or key)
+        float v0 = vec[i];
+        float v1 = vec[i+1];
+        vec[i]   = v0 * fcr - v1 * fci;
+        vec[i+1] = v0 * fci + v1 * fcr;
+      }
     }
 
-    // final rmsnorm
-    rmsnorm(x, x, w->rms_final_weight, dim, ispc_dim);
+    // multihead attention. iterate over all heads in parallel
+    int h;
+#pragma omp parallel for private(h)
+    for (h = 0; h < p->n_heads; h++) {
+      // get the query vector for this head
+      float* q = s->q + h * head_size;
+      // attention scores for this head
+      float* att = s->att + h * p->seq_len;
+      // iterate over all timesteps, including the current one
+      for (int t = 0; t <= pos; t++) {
+        // get the key vector for this head and at this timestep
+        float* k = s->key_cache + loff + t * kv_dim + (h / kv_mul) * head_size;
+        // calculate the attention score as the dot product of q and k
+        float score = 0.0f;
+        for (int i = 0; i < head_size; i++) {
+          score += q[i] * k[i];
+        }
+        score /= sqrtf(head_size);
+        // save the score to the attention buffer
+        att[t] = score;
+      }
 
-    // classifier into logits
-    matmul(s->logits, x, w->wcls, p->dim, p->vocab_size);
-    return s->logits;
+      // softmax the scores to get attention weights, from 0..pos inclusively
+      softmax(att, pos + 1);
+
+      // weighted sum of the values, store back into xb
+      float* xb = s->xb + h * head_size;
+      memset(xb, 0, head_size * sizeof(float));
+      for (int t = 0; t <= pos; t++) {
+        // get the value vector for this head and at this timestep
+        float* v = s->value_cache + loff + t * kv_dim + (h / kv_mul) * head_size;
+        // get the attention weight for this timestep
+        float a = att[t];
+        // accumulate the weighted value into xb
+        for (int i = 0; i < head_size; i++) {
+          xb[i] += a * v[i];
+        }
+      }
+    }
+
+    // final matmul to get the output of the attention
+    matmul(s->xb2, s->xb, w->wo + l*dim*dim, dim, dim);
+
+    // residual connection back into x
+    for (int i = 0; i < dim; i++) {
+      x[i] += s->xb2[i];
+    }
+
+    // ffn rmsnorm
+    rmsnorm(s->xb, x, w->rms_ffn_weight + l*dim, dim, ispc_dim);
+
+    // Now for FFN in PyTorch we have: self.w2(F.silu(self.w1(x)) * self.w3(x))
+    // first calculate self.w1(x) and self.w3(x)
+    matmul(s->hb, s->xb, w->w1 + l*dim*hidden_dim, dim, hidden_dim);
+    matmul(s->hb2, s->xb, w->w3 + l*dim*hidden_dim, dim, hidden_dim);
+
+    // SwiGLU non-linearity
+    for (int i = 0; i < hidden_dim; i++) {
+      float val = s->hb[i];
+      // silu(x)=x*σ(x), where σ(x) is the logistic sigmoid
+      val *= (1.0f / (1.0f + expf(-val)));
+      // elementwise multiply with w3(x)
+      val *= s->hb2[i];
+      s->hb[i] = val;
+    }
+
+    // final matmul to get the output of the ffn
+    matmul(s->xb, s->hb, w->w2 + l*dim*hidden_dim, hidden_dim, dim);
+
+    // residual connection
+    for (int i = 0; i < dim; i++) {
+      x[i] += s->xb[i];
+    }
+  }
+
+  // final rmsnorm
+  rmsnorm(x, x, w->rms_final_weight, dim, ispc_dim);
+
+  // classifier into logits
+  matmul(s->logits, x, w->wcls, p->dim, p->vocab_size);
+  return s->logits;
 }
 
 // ----------------------------------------------------------------------------
@@ -700,60 +736,68 @@ long time_in_ms() {
 // ----------------------------------------------------------------------------
 // generation loop
 
-void generate(Transformer *transformer, Tokenizer *tokenizer, Sampler *sampler, char *prompt, int steps) {
-    char *empty_prompt = "";
-    if (prompt == NULL) { prompt = empty_prompt; }
+void 
+generate(
+    Transformer *transformer, 
+    Tokenizer *tokenizer, 
+    Sampler *sampler, 
+    char *prompt, 
+    int steps
+    ) 
+{
+  char *empty_prompt = "";
+  if ( prompt == NULL) { prompt = empty_prompt; }
 
-    // encode the (string) prompt into tokens sequence
-    int num_prompt_tokens = 0;
-    int* prompt_tokens = (int*)malloc((strlen(prompt)+3) * sizeof(int)); // +3 for '\0', ?BOS, ?EOS
-    encode(tokenizer, prompt, 1, 0, prompt_tokens, &num_prompt_tokens);
-    if (num_prompt_tokens < 1) {
-        fprintf(stderr, "something is wrong, expected at least 1 prompt token\n");
-        exit(EXIT_FAILURE);
+  // encode the (string) prompt into tokens sequence
+  int num_prompt_tokens = 0;
+  int* prompt_tokens = (int*)malloc((strlen(prompt)+3) * sizeof(int)); // +3 for '\0', ?BOS, ?EOS
+  encode(tokenizer, prompt, 1, 0, prompt_tokens, &num_prompt_tokens);
+  if (num_prompt_tokens < 1) {
+    fprintf(stderr, "something is wrong, expected at least 1 prompt token\n");
+    exit(EXIT_FAILURE);
+  }
+
+  // start the main loop
+  long start = 0;  // used to time our code, only initialized after first iteration
+  int next;        // will store the next token in the sequence
+  int token = prompt_tokens[0]; // kick off with the first token in the prompt
+  int pos = 0;     // position in the sequence
+  while (pos < steps) {
+
+    // forward the transformer to get logits for the next token
+    float* logits = forward(transformer, token, pos);
+
+    // advance the state machine
+    if (pos < num_prompt_tokens - 1) {
+      // if we are still processing the input prompt, force the next prompt token
+      next = prompt_tokens[pos + 1];
+    } else {
+      // otherwise sample the next token from the logits
+      next = sample(sampler, logits);
     }
+    pos++;
 
-    // start the main loop
-    long start = 0;  // used to time our code, only initialized after first iteration
-    int next;        // will store the next token in the sequence
-    int token = prompt_tokens[0]; // kick off with the first token in the prompt
-    int pos = 0;     // position in the sequence
-    while (pos < steps) {
+    // data-dependent terminating condition: the BOS (=1) token delimits sequences
+    if (next == 1) { break; }
 
-        // forward the transformer to get logits for the next token
-        float* logits = forward(transformer, token, pos);
+    // print the token as string, decode it with the Tokenizer object
+    char* piece = decode(tokenizer, token, next);
+    safe_printf(piece); // same as printf("%s", piece), but skips "unsafe" bytes
+    fflush(stdout);
+    token = next;
 
-        // advance the state machine
-        if (pos < num_prompt_tokens - 1) {
-            // if we are still processing the input prompt, force the next prompt token
-            next = prompt_tokens[pos + 1];
-        } else {
-            // otherwise sample the next token from the logits
-            next = sample(sampler, logits);
-        }
-        pos++;
+    // init the timer here because the first iteration can be slower
+    if (start == 0) { start = time_in_ms(); }
+  }
+  printf("\n");
 
-        // data-dependent terminating condition: the BOS (=1) token delimits sequences
-        if (next == 1) { break; }
+  // report achieved tok/s (pos-1 because the timer starts after first iteration)
+  if (pos > 1) {
+    long end = time_in_ms();
+    fprintf(stderr, "achieved tok/s: %f\n", (pos-1) / (double)(end-start)*1000);
+  }
 
-        // print the token as string, decode it with the Tokenizer object
-        char* piece = decode(tokenizer, token, next);
-        safe_printf(piece); // same as printf("%s", piece), but skips "unsafe" bytes
-        fflush(stdout);
-        token = next;
-
-        // init the timer here because the first iteration can be slower
-        if (start == 0) { start = time_in_ms(); }
-    }
-    printf("\n");
-
-    // report achieved tok/s (pos-1 because the timer starts after first iteration)
-    if (pos > 1) {
-        long end = time_in_ms();
-        fprintf(stderr, "achieved tok/s: %f\n", (pos-1) / (double)(end-start)*1000);
-    }
-
-    free(prompt_tokens);
+  free(prompt_tokens);
 }
 
 void read_stdin(const char* guide, char* buffer, size_t bufsize) {
@@ -862,86 +906,96 @@ void chat(Transformer *transformer, Tokenizer *tokenizer, Sampler *sampler,
 // CLI, include only if not testing
 #ifndef TESTING
 
-void error_usage() {
-    fprintf(stderr, "Usage:   run <checkpoint> [options]\n");
-    fprintf(stderr, "Example: run model.bin -n 256 -i \"Once upon a time\"\n");
-    fprintf(stderr, "Options:\n");
-    fprintf(stderr, "  -t <float>  temperature in [0,inf], default 1.0\n");
-    fprintf(stderr, "  -p <float>  p value in top-p (nucleus) sampling in [0,1] default 0.9\n");
-    fprintf(stderr, "  -s <int>    random seed, default time(NULL)\n");
-    fprintf(stderr, "  -n <int>    number of steps to run for, default 256. 0 = max_seq_len\n");
-    fprintf(stderr, "  -i <string> input prompt\n");
-    fprintf(stderr, "  -z <string> optional path to custom tokenizer\n");
-    fprintf(stderr, "  -m <string> mode: generate|chat, default: generate\n");
-    fprintf(stderr, "  -y <string> (optional) system prompt in chat mode\n");
-    exit(EXIT_FAILURE);
+void error_usage() 
+{
+  fprintf(stderr, "Usage:   run <checkpoint> [options]\n");
+  fprintf(stderr, "Example: run model.bin -n 256 -i \"Once upon a time\"\n");
+  fprintf(stderr, "Options:\n");
+  fprintf(stderr, "  -t <float>  temperature in [0,inf], default 1.0\n");
+  fprintf(stderr, "  -p <float>  p value in top-p (nucleus) sampling in [0,1] default 0.9\n");
+  fprintf(stderr, "  -s <int>    random seed, default time(NULL)\n");
+  fprintf(stderr, "  -n <int>    number of steps to run for, default 256. 0 = max_seq_len\n");
+  fprintf(stderr, "  -i <string> input prompt\n");
+  fprintf(stderr, "  -z <string> optional path to custom tokenizer\n");
+  fprintf(stderr, "  -m <string> mode: generate|chat, default: generate\n");
+  fprintf(stderr, "  -y <string> (optional) system prompt in chat mode\n");
+  exit(EXIT_FAILURE);
 }
 
-int main(int argc, char *argv[]) {
+int main(
+    int argc, 
+    char *argv[]
+    ) 
+{
+  int status = 0;
+  // default parameters
+  char *checkpoint_path = NULL;  // e.g. out/model.bin
+  char *tokenizer_path = "tokenizer.bin";
+  float temperature = 1.0f;   // 0.0 = greedy deterministic. 1.0 = original. don't set higher
+  float topp = 0.9f;          // top-p in nucleus sampling. 1.0 = off. 0.9 works well, but slower
+  int steps = 256;            // number of steps to run for
+  char *prompt = NULL;        // prompt string
+  unsigned long long rng_seed = 0; // seed rng with time by default
+  char *mode = "generate";    // generate|chat
+  char *system_prompt = NULL; // the (optional) system prompt to use in chat mode
 
-    // default parameters
-    char *checkpoint_path = NULL;  // e.g. out/model.bin
-    char *tokenizer_path = "tokenizer.bin";
-    float temperature = 1.0f;   // 0.0 = greedy deterministic. 1.0 = original. don't set higher
-    float topp = 0.9f;          // top-p in nucleus sampling. 1.0 = off. 0.9 works well, but slower
-    int steps = 256;            // number of steps to run for
-    char *prompt = NULL;        // prompt string
-    unsigned long long rng_seed = 0; // seed rng with time by default
-    char *mode = "generate";    // generate|chat
-    char *system_prompt = NULL; // the (optional) system prompt to use in chat mode
+  // poor man's C argparse so we can override the defaults above from the command line
+  if (argc >= 2) { checkpoint_path = argv[1]; } else { error_usage(); }
+  for (int i = 2; i < argc; i+=2) {
+    // do some basic validation
+    if (i + 1 >= argc) { error_usage(); } // must have arg after flag
+    if (argv[i][0] != '-') { error_usage(); } // must start with dash
+    if (strlen(argv[i]) != 2) { error_usage(); } // must be -x (one dash, one letter)
+    // read in the args
+    if (argv[i][1] == 't') { temperature = atof(argv[i + 1]); }
+    else if (argv[i][1] == 'p') { topp = atof(argv[i + 1]); }
+    else if (argv[i][1] == 's') { rng_seed = atoi(argv[i + 1]); }
+    else if (argv[i][1] == 'n') { steps = atoi(argv[i + 1]); }
+    else if (argv[i][1] == 'i') { prompt = argv[i + 1]; }
+    else if (argv[i][1] == 'z') { tokenizer_path = argv[i + 1]; }
+    else if (argv[i][1] == 'm') { mode = argv[i + 1]; }
+    else if (argv[i][1] == 'y') { system_prompt = argv[i + 1]; }
+    else { error_usage(); }
+  }
 
-    // poor man's C argparse so we can override the defaults above from the command line
-    if (argc >= 2) { checkpoint_path = argv[1]; } else { error_usage(); }
-    for (int i = 2; i < argc; i+=2) {
-        // do some basic validation
-        if (i + 1 >= argc) { error_usage(); } // must have arg after flag
-        if (argv[i][0] != '-') { error_usage(); } // must start with dash
-        if (strlen(argv[i]) != 2) { error_usage(); } // must be -x (one dash, one letter)
-        // read in the args
-        if (argv[i][1] == 't') { temperature = atof(argv[i + 1]); }
-        else if (argv[i][1] == 'p') { topp = atof(argv[i + 1]); }
-        else if (argv[i][1] == 's') { rng_seed = atoi(argv[i + 1]); }
-        else if (argv[i][1] == 'n') { steps = atoi(argv[i + 1]); }
-        else if (argv[i][1] == 'i') { prompt = argv[i + 1]; }
-        else if (argv[i][1] == 'z') { tokenizer_path = argv[i + 1]; }
-        else if (argv[i][1] == 'm') { mode = argv[i + 1]; }
-        else if (argv[i][1] == 'y') { system_prompt = argv[i + 1]; }
-        else { error_usage(); }
-    }
+  // parameter validation/overrides
+  if (rng_seed <= 0) rng_seed = (unsigned int)time(NULL);
+  if (temperature < 0.0) temperature = 0.0;
+  if (topp < 0.0 || 1.0 < topp) topp = 0.9;
+  if (steps < 0) steps = 0;
 
-    // parameter validation/overrides
-    if (rng_seed <= 0) rng_seed = (unsigned int)time(NULL);
-    if (temperature < 0.0) temperature = 0.0;
-    if (topp < 0.0 || 1.0 < topp) topp = 0.9;
-    if (steps < 0) steps = 0;
+  // build the Transformer via the model .bin file
+  Transformer transformer;
+  status = build_transformer(&transformer, checkpoint_path); cBYE(status);
+  if ( (steps == 0) || (steps > transformer.config.seq_len) ) {
+    steps = transformer.config.seq_len; // override to ~max length
+  }
 
-    // build the Transformer via the model .bin file
-    Transformer transformer;
-    build_transformer(&transformer, checkpoint_path);
-    if (steps == 0 || steps > transformer.config.seq_len) steps = transformer.config.seq_len; // override to ~max length
+  // build the Tokenizer via the tokenizer .bin file
+  Tokenizer tokenizer;
+  build_tokenizer(&tokenizer, tokenizer_path, transformer.config.vocab_size);
 
-    // build the Tokenizer via the tokenizer .bin file
-    Tokenizer tokenizer;
-    build_tokenizer(&tokenizer, tokenizer_path, transformer.config.vocab_size);
+  // build the Sampler
+  Sampler sampler;
+  build_sampler(&sampler, transformer.config.vocab_size, temperature, topp, rng_seed);
 
-    // build the Sampler
-    Sampler sampler;
-    build_sampler(&sampler, transformer.config.vocab_size, temperature, topp, rng_seed);
+  // run!
+  if (strcmp(mode, "generate") == 0) {
+    generate(&transformer, &tokenizer, &sampler, prompt, steps);
+  } 
+  else if (strcmp(mode, "chat") == 0) {
+    chat(&transformer, &tokenizer, &sampler, prompt, system_prompt, steps);
+  } 
+  else {
+    fprintf(stderr, "unknown mode: %s\n", mode);
+    error_usage();
+  }
 
-    // run!
-    if (strcmp(mode, "generate") == 0) {
-        generate(&transformer, &tokenizer, &sampler, prompt, steps);
-    } else if (strcmp(mode, "chat") == 0) {
-        chat(&transformer, &tokenizer, &sampler, prompt, system_prompt, steps);
-    } else {
-        fprintf(stderr, "unknown mode: %s\n", mode);
-        error_usage();
-    }
-
-    // memory and file handles cleanup
-    free_sampler(&sampler);
-    free_tokenizer(&tokenizer);
-    free_transformer(&transformer);
-    return 0;
+  // memory and file handles cleanup
+  free_sampler(&sampler);
+  free_tokenizer(&tokenizer);
+  free_transformer(&transformer);
+BYE:
+  return status;
 }
 #endif

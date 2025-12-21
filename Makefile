@@ -3,7 +3,7 @@
 CC = gcc
 
 # the most basic way of building that is most likely to work on most systems
-all : run runq run_ispc
+all : run runq run_ispc cli_split_weights
 
 CFLAGS := -g -O0
 # CFLAGS := -O3
@@ -12,6 +12,7 @@ CFLAGS += -flto # for Link Time Optimization
 # CFLAGS += -msse4.1 # TODO 
 
 INCS := -I./inc/
+INCS += -I${RSUTILS_SRC_ROOT}/inc/
 
 .c.o :
 	$(CC) -c -o $@ $< $(CFLAGS)  $(INCS)
@@ -46,6 +47,9 @@ run_ispc: run.o  ${ISPC_OBJS} matmul_ispc_wrap.o
 runq: runq.o  ${OBJS}
 	$(CC) -o runq runq.o ${OBJS}  -lm -lgomp
 
+cli_split_weights : cli_split_weights.o 
+	$(CC) -o cli_split_weights cli_split_weights.o \
+		${RSUTILS_SRC_ROOT}/src/librsutils.so
 
   # https://gcc.gnu.org/onlinedocs/gcc/Optimize-Options.html
   # https://simonbyrne.github.io/notes/fastmath/

@@ -9,3 +9,4 @@ runq_ispc
 *.out
 *.aux
 *.dvi
+cli_split_weights
