@@ -32,4 +32,19 @@ typedef struct {
     float* wcls;
 } TransformerWeights;
 
+typedef enum { 
+  sp_token_embedding_table = 0,
+  sp_rms_att_weight,
+  sp_wq,
+  sp_wk,
+  sp_wv,
+  sp_wo,
+  sp_rms_ffn_weight,
+  sp_w1,
+  sp_w2,
+  sp_w3,
+  sp_rms_final_weight,
+  sp_wcls,
+  sp_num // place at end 
+} splits;
 #endif // __WEIGHTS_FILE_LAYOUT
