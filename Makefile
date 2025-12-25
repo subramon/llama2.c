@@ -47,9 +47,13 @@ run_ispc: run.o  ${ISPC_OBJS} matmul_ispc_wrap.o
 runq: runq.o  ${OBJS}
 	$(CC) -o runq runq.o ${OBJS}  -lm -lgomp
 
-cli_split_weights : cli_split_weights.o set_split_sizes.o 
-	$(CC) -o cli_split_weights cli_split_weights.o set_split_sizes.o \
-		${RSUTILS_SRC_ROOT}/src/librsutils.so
+cli_split_weights : cli_split_weights.o \
+	set_split_sizes.o \
+	read_config.o 
+	$(CC) -o cli_split_weights cli_split_weights.o  \
+	set_split_sizes.o \
+	read_config.o \
+	${RSUTILS_SRC_ROOT}/src/librsutils.so
 
   # https://gcc.gnu.org/onlinedocs/gcc/Optimize-Options.html
   # https://simonbyrne.github.io/notes/fastmath/

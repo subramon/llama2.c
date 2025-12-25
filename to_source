@@ -1,1 +1,2 @@
 export RSUTILS_SRC_ROOT=$HOME/RSUTILS/
+export PATH=$PATH:$PWD
