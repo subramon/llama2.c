@@ -5,6 +5,9 @@
 #include "weights_file_layout.h"
 #include "set_split_sizes.h"
 #include "read_config.h"
+#include "mat_1d_to_bin_file.h"
+#include "mat_2d_to_bin_file.h"
+#include "mat_3d_to_bin_file.h"
 
 int
 main(
@@ -27,65 +30,66 @@ main(
   status = rs_mmap(wfile, &X, &nX, 0); cBYE(status);
   bak_X = X; bak_nX = nX; 
   status = chk_split_sizes(nX, split_sizes); cBYE(status);
+  int head_size = C.dim / C.n_heads;
   //---------------------------------------------------
   int padding = 0; float fzero = 0;
   // Create individual file for each "split"
   X += sizeof(Config); nX -= sizeof(Config);
   // create token_embedding_table
-  char *Y = X; 
-  fp = fopen("_token_embedding_table.bin", "wb");
-  return_if_fopen_failed(fp, "_token_embedding_table.bin", "wb");
-
-  padding = C.dim % FLOATS_IN_REG;
-  if ( padding != 0 ) { padding = FLOATS_IN_REG - padding; }
-  for ( int i = 0; i < C.vocab_size; i++ ) { 
-    fwrite(X, sizeof(float), C.dim, fp); 
-    for ( int p = 0; p < padding; p++ ) { 
-      fwrite(&fzero, sizeof(float), 1, fp); 
-    }
-    X += sizeof(float)*C.dim; nX -= sizeof(float)*C.dim;
-  }
-  if ( ( X - Y ) != sizeof(float)*split_sizes[sp_token_embedding_table] ){
-    go_BYE(-1); 
-  }
-  fclose_if_non_null(fp); 
-#ifdef DEBUG
-  status = rs_mmap("_token_embedding_table.bin", &Z, &nZ, 0); cBYE(status);
-  float *token_embedding_table = (float *)Z;
-  mcr_rs_munmap(Z, nZ);
-#endif
-
+  status = mat_2d_to_bin_file(&X, &nX, "_token_embedding_table.bin", 
+      sizeof(float), C.vocab_size, C.dim);
+  cBYE(status);
   //-------------------------------------------------------
   // create rms_att_weight
-  Y = X; 
-  fp = fopen("_rms_att_weight.bin", "wb");
-  return_if_fopen_failed(fp, "_rms_att_weight.bin", "wb");
-
-  padding = C.dim % FLOATS_IN_REG;
-  if ( padding != 0 ) { padding = FLOATS_IN_REG - padding; }
-  for ( int i = 0; i < C.n_layers; i++ ) { 
-    fwrite(X, sizeof(float), C.dim, fp); 
-    for ( int p = 0; p < padding; p++ ) { 
-      fwrite(&fzero, sizeof(float), 1, fp); 
-    }
-    X += sizeof(float)*C.dim; nX -= sizeof(float)*C.dim;
-  }
-  if ( ( X - Y ) != sizeof(float)*split_sizes[sp_rms_att_weight] ) { 
-    go_BYE(-1); 
-  }
-  fclose_if_non_null(fp); 
-#ifdef DEBUG
-  status = rs_mmap("_rms_att_weight.bin", &Z, &nZ, 0); cBYE(status);
-  float *rms_att_weight = (float *)Z;
-  mcr_rs_munmap(Z, nZ);
-#endif
+  status = mat_2d_to_bin_file(&X, &nX, "_rms_att_weight.bin", 
+      sizeof(float), C.n_layers, C.dim);
+  cBYE(status);
   //-------------------------------------------------------
-
-
-  
-
-
-
+  // create wq
+  status = mat_3d_to_bin_file(&X, &nX, "_wq.bin", 
+      sizeof(float), C.n_layers, C.dim, C.n_heads * head_size);
+  cBYE(status);
+  //-------------------------------------------------------
+  // create wk
+  status = mat_3d_to_bin_file(&X, &nX, "_wk.bin", 
+      sizeof(float), C.n_layers, C.dim, C.n_kv_heads * head_size);
+  cBYE(status);
+  //-------------------------------------------------------
+  // create wv
+  status = mat_3d_to_bin_file(&X, &nX, "_wv.bin", 
+      sizeof(float), C.n_layers, C.dim, C.n_kv_heads * head_size);
+  cBYE(status);
+  //-------------------------------------------------------
+  // create wo
+  status = mat_3d_to_bin_file(&X, &nX, "_wo.bin", 
+      sizeof(float), C.n_layers, C.n_heads * head_size, C.dim);
+  cBYE(status);
+  //-------------------------------------------------------
+  // create rms_ffn_weight
+  status = mat_2d_to_bin_file(&X, &nX, "_rms_ffn_weight.bin", 
+      sizeof(float), C.n_layers, C.dim);
+  cBYE(status);
+  //-------------------------------------------------------
+  // create w1
+  status = mat_3d_to_bin_file(&X, &nX, "_w1.bin", 
+      sizeof(float), C.n_layers, C.dim, C.hidden_dim);
+  cBYE(status);
+  //-------------------------------------------------------
+  // create w2
+  status = mat_3d_to_bin_file(&X, &nX, "_w2.bin", 
+      sizeof(float), C.n_layers, C.hidden_dim, C.dim);
+  cBYE(status);
+  //-------------------------------------------------------
+  // create w3
+  status = mat_3d_to_bin_file(&X, &nX, "_w3.bin", 
+      sizeof(float), C.n_layers, C.dim, C.hidden_dim);
+  cBYE(status);
+  //-------------------------------------------------------
+  // create rms_final_weight
+  status = mat_1d_to_bin_file(&X, &nX, "_rms_final_weight.bin", 
+      sizeof(float), C.dim);
+  cBYE(status);
+  //-------------------------------------------------------
   printf("Split file %s \n", wfile);
 BYE:
   fclose_if_non_null(fp); 

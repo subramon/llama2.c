@@ -49,10 +49,16 @@ runq: runq.o  ${OBJS}
 
 cli_split_weights : cli_split_weights.o \
 	set_split_sizes.o \
-	read_config.o 
+	read_config.o \
+	mat_1d_to_bin_file.o \
+	mat_2d_to_bin_file.o \
+	mat_3d_to_bin_file.o 
 	$(CC) -o cli_split_weights cli_split_weights.o  \
 	set_split_sizes.o \
 	read_config.o \
+	mat_1d_to_bin_file.o \
+	mat_2d_to_bin_file.o \
+	mat_3d_to_bin_file.o \
 	${RSUTILS_SRC_ROOT}/src/librsutils.so
 
   # https://gcc.gnu.org/onlinedocs/gcc/Optimize-Options.html
