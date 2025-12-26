@@ -1,3 +1,5 @@
+#include <stddef.h>
+#include "weights_file_layout.h"
 void 
 memory_map_weights(
     TransformerWeights *w, 

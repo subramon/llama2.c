@@ -24,6 +24,8 @@ ISPC_SRCS += dot_prod_ispc.ispc
 SRCS += rmsnorm.c 
 SRCS += matmul.c 
 SRCS += softmax.c 
+SRCS += orig_mmap_weights.c 
+SRCS += mmap_weights.c 
 
 OBJS  = $(SRCS:.c=.o)
 
@@ -39,13 +41,24 @@ dot_prod_ispc.o :
 	ispc dot_prod_ispc.ispc -o dot_prod_ispc.o 
 
 run: run.o  ${OBJS}
-	$(CC) -o run run.o ${OBJS}  -lm -lgomp
+	$(CC) -o run run.o ${OBJS}  \
+	${RSUTILS_SRC_ROOT}/src/librsutils.so \
+	-lm -lgomp
 
-run_ispc: run.o  ${ISPC_OBJS} matmul_ispc_wrap.o 
-	$(CC) -o run_ispc run.o ${ISPC_OBJS} matmul_ispc_wrap.o -lm -lgomp
+run_ispc: run.o  ${ISPC_OBJS} matmul_ispc_wrap.o mmap_weights.o 
+	$(CC) -o run_ispc run.o ${ISPC_OBJS} \
+	matmul_ispc_wrap.o \
+	mmap_weights.o \
+	${RSUTILS_SRC_ROOT}/src/librsutils.so \
+	-lm -lgomp
 
 runq: runq.o  ${OBJS}
-	$(CC) -o runq runq.o ${OBJS}  -lm -lgomp
+	$(CC) -o runq runq.o \
+	rmsnorm.o \
+	softmax.o \
+	matmul.o \
+	${RSUTILS_SRC_ROOT}/src/librsutils.so \
+	-lm -lgomp
 
 cli_split_weights : cli_split_weights.o \
 	set_split_sizes.o \
