@@ -17,7 +17,6 @@
 #endif
 #include "consts.h"
 #include "macros.h"
-#include "orig_mmap_weights.h"
 #include "matmul.h"
 #include "rmsnorm.h"
 #include "softmax.h"
@@ -43,7 +42,7 @@ typedef struct {
     float *logits; // output logits
     // kv cache
     float* key_cache;   // (layer, seq_len, dim)
-    float* value_cache; // (layer, seq_len, dim)
+    float* val_cache; // (layer, seq_len, dim)
 } RunState;
 
 typedef struct {
@@ -96,12 +95,12 @@ malloc_run_state(
   s->hb2 = calloc(p->hidden_dim, sizeof(float));
   s->q   = calloc(ispc_dim, sizeof(float));
   s->key_cache   = calloc(ispc_cache_len, sizeof(float));
-  s->value_cache = calloc(ispc_cache_len, sizeof(float));
+  s->val_cache = calloc(ispc_cache_len, sizeof(float));
   s->att    = calloc(ispc_att_len, sizeof(float));
   s->logits = calloc(ispc_vocab_size, sizeof(float));
   // ensure all mallocs went fine
   if (!s->x || !s->xb || !s->xb2 || !s->hb || !s->hb2 || !s->q
-      || !s->key_cache || !s->value_cache || !s->att || !s->logits) {
+      || !s->key_cache || !s->val_cache || !s->att || !s->logits) {
     fprintf(stderr, "malloc failed!\n");
     go_BYE(-1); 
   }
@@ -123,7 +122,7 @@ free_run_state(
   free_if_non_null(s->att);
   free_if_non_null(s->logits);
   free_if_non_null(s->key_cache);
-  free_if_non_null(s->value_cache);
+  free_if_non_null(s->val_cache);
 }
 
 
@@ -209,6 +208,7 @@ forward(
     int pos
     ) 
 {
+  int status = 0;
   // a few convenience variables
   Config* p = &transformer->config;
   TransformerWeights* w = &transformer->weights;
@@ -227,17 +227,31 @@ forward(
   // forward all the layers
   for( int l = 0; l < p->n_layers; l++) {
     // attention rmsnorm
-    rmsnorm(s->xb, x, w->rms_att_weight + l*dim, dim, ispc_dim);
+    rmsnorm(s->xb, x, w->rms_att_weight + l*dim, dim);
 
     // key and value point to the kv cache
     int loff = l * p->seq_len * kv_dim; // kv cache layer offset for convenience
+    float *s_k = get_3d_ptr(s->key_cache, l, pos, p->seq_len, kv_dim);
+    float *s_v = get_3d_ptr(s->val_cache, l, pos, p->seq_len, kv_dim);
+#ifdef DEBUG
     s->k = s->key_cache + loff + pos * kv_dim;
-    s->v = s->value_cache + loff + pos * kv_dim;
+    s->v = s->val_cache + loff + pos * kv_dim;
+    if ( ( s->k - s_k ) != 0 ) { go_BYE(-1); }
+    if ( ( s->v - s_v ) != 0 ) { go_BYE(-1); }
+#endif
+    float *w_q = get_3d_ptr(w->wq, l, 0, dim, dim);
+    float *w_k = get_3d_ptr(w->wk, l, 0, dim, kv_dim);
+    float *w_v = get_3d_ptr(w->wv, l, 0, dim, kv_dim);
+#ifdef DEBUG
+    if ( w_q != w->wq + (l*dim*dim) ) { go_BYE(-1); }
+    if ( w_k != w->wk + (l*dim*kv_dim) ) { go_BYE(-1); }
+    if ( w_v != w->wv + (l*dim*kv_dim) ) { go_BYE(-1); }
+#endif
 
     // qkv matmuls for this position
-    matmul(s->q, s->xb, w->wq + l*dim*dim, dim, dim);
-    matmul(s->k, s->xb, w->wk + l*dim*kv_dim, dim, kv_dim);
-    matmul(s->v, s->xb, w->wv + l*dim*kv_dim, dim, kv_dim);
+    matmul(s->q, s->xb, w_q, dim, dim);
+    matmul(s_k,  s->xb, w_k, dim, kv_dim);
+    matmul(s_v,  s->xb, w_v, dim, kv_dim);
 
     // RoPE relative positional encoding: complex-valued rotate q and k in each head
     for (int i = 0; i < dim; i+=2) {
@@ -286,7 +300,7 @@ forward(
       memset(xb, 0, head_size * sizeof(float));
       for (int t = 0; t <= pos; t++) {
         // get the value vector for this head and at this timestep
-        float* v = s->value_cache + loff + t * kv_dim + (h / kv_mul) * head_size;
+        float* v = s->val_cache + loff + t * kv_dim + (h / kv_mul) * head_size;
         // get the attention weight for this timestep
         float a = att[t];
         // accumulate the weighted value into xb
@@ -305,7 +319,7 @@ forward(
     }
 
     // ffn rmsnorm
-    rmsnorm(s->xb, x, w->rms_ffn_weight + l*dim, dim, ispc_dim);
+    rmsnorm(s->xb, x, w->rms_ffn_weight + l*dim, dim);
 
     // Now for FFN in PyTorch we have: self.w2(F.silu(self.w1(x)) * self.w3(x))
     // first calculate self.w1(x) and self.w3(x)
@@ -332,11 +346,12 @@ forward(
   }
 
   // final rmsnorm
-  rmsnorm(x, x, w->rms_final_weight, dim, ispc_dim);
+  rmsnorm(x, x, w->rms_final_weight, dim);
 
   // classifier into logits
   matmul(s->logits, x, w->wcls, p->dim, p->vocab_size);
-  return s->logits;
+BYE:
+  if ( status == 0 ) { return s->logits; } else { return NULL; }
 }
 
 // ----------------------------------------------------------------------------

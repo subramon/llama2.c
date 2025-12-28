@@ -332,7 +332,7 @@ float* forward(Transformer* transformer, int token, int pos) {
     for(int l = 0; l < p->n_layers; l++) {
 
         // attention rmsnorm
-        rmsnorm(s->xb, x, w->rms_att_weight + l*dim, dim, ispc_dim);
+        rmsnorm(s->xb, x, w->rms_att_weight + l*dim, dim);
 
         // qkv matmuls for this position
         quantize(&s->xq, s->xb, dim);
@@ -414,7 +414,7 @@ float* forward(Transformer* transformer, int token, int pos) {
         }
 
         // ffn rmsnorm
-        rmsnorm(s->xb, x, w->rms_ffn_weight + l*dim, dim, ispc_dim);
+        rmsnorm(s->xb, x, w->rms_ffn_weight + l*dim, dim);
 
         // Now for FFN in PyTorch we have: self.w2(F.silu(self.w1(x)) * self.w3(x))
         // first calculate self.w1(x) and self.w3(x)
@@ -443,7 +443,7 @@ float* forward(Transformer* transformer, int token, int pos) {
     }
 
     // final rmsnorm
-    rmsnorm(x, x, w->rms_final_weight, dim, ispc_dim);
+    rmsnorm(x, x, w->rms_final_weight, dim);
 
     // classifier into logits
     quantize(&s->xq, x, dim);

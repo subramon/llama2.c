@@ -1,14 +1,15 @@
+#include "consts.h"
 export void 
 rmsnorm(
     uniform float o[], 
     uniform float x[], 
     uniform float weight[], 
-    uniform int n,
-    uniform int sz // what was allocated 
+    uniform int n
     ) 
 {
-  // TODO P2 assume(n % programCount == 0);
-  // assert(n == sz); // TODO Undo this assumption
+  uniform int sz = (n / FLOATS_IN_REG ) * FLOATS_IN_REG;
+  if ( sz != n ) { sz +=  FLOATS_IN_REG ; }
+  assume(sz % programCount == 0);
   // cannot do assert inside ispc code 
   // calculate sum of squares
   varying float v_ss = 0.0f; // varying accumulator 

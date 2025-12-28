@@ -37,33 +37,69 @@
 
 \end{abstract}
 
+\section{XXX}
+\subsection{Conventions}
+
+If \(T\) is a table of dimensions \(n_1 \times n_2\),
+then \(T_i\) is a vector of length \(n_2\)
+
+\subsection{Glossary}
+
+  \begin{table}[hbtp]
+    \centering
+    \begin{tabular}{|l||l|l|l|} \hline \hline
+      {\bf Abbreviation} & {\bf C code} &  XX& {\bf Dimensions}   \\ \hline 
+      \(n_V\) & {\tt vocab\_size} & 0 & \\ \hline
+      \(n_D\) & {\tt dim} & 0 & \\ \hline
+      \(n_H\) & {\tt n\_heads} & 0 & \\ \hline
+      \(s_H\) & {\tt head\_size} & 0 & \\ \hline
+      \(n_{HKV}\) & {\tt n\_kv\_heads} & 0 & \\ \hline
+      \(n_D\) & {\tt dim} & 0 & \\ \hline
+      \(n_D'\) & {\tt ispc\_dim} & 0 & \\ \hline
+      \hline
+      \hline
+      \(S_{kc}\) & key\_cache &  \\ \hline 
+      \(S_{vc}\) & value\_cache & \\ \hline 
+      \hline
+      \(W_t\) & token embedding table & 2 & \(n_V \times n_D\) \\ \hline
+      \(W_{ra}\) & rms att weight & 2 & \(n_L \times n_D \) \\ \hline
+      \(W_q\) & w\_q & 3 & \(n_L \times n_D \times (n_H \times s_H)\) \\ \hline
+      \(W_k\) & w\_k & 3 & \(n_L \times n_D \times (n_{HK} \times s_H)\) \\ \hline
+      \(W_v\) & w\_v & 3 & \(n_L \times n_D \times (n_{HK} \times s_H)\) \\ \hline
+      \(W_o\) & w\_o & 3 & \(n_L \times (n_H \times s_H) \times n_D\) \\ \hline
+    \hline
+    \end{tabular}
+      \caption{Mapping math notation to C code} 
+      \label{math_notation}
+  \end{table}
+
 \section{Utilities}
 
 \subsection{rmsnorm}
 \label{rmsnorm}
 
-Arguments in Table~\ref{args_rmsnorm}
+Input Arguments in Table~\ref{args_rmsnorm}
   \begin{table}[hbtp]
     \centering
     \begin{tabular}{|l||l|l|} \hline \hline
       {\bf Argument} & {\bf Type}  \\ \hline 
-      \(o\) & {\tt float} vector of length \(n\) \\ \hline
       \(x\) & {\tt float} vector of length \(n\) \\ \hline
       \(w\) & {\tt float} vector of length \(n\) \\ \hline
       \(n\) & integer \\ \hline
     \hline
     \end{tabular}
       \caption{Arguments for rmsnorm}
+Output arguments
+\be
+\item \(o\), {\tt float} vector of length \(n\) 
+  \ee
 
       \label{args_rmsnorm}
   \end{table}
 
   \be
-\item \(s_1 = \sum_{i=0}^{i=n-1} x_i \times x_i\)
-\item \(s_2 = s_1 / n\)
-\item \(s_3 = s_2 + \epsilon\)
-\item \(s = \frac{1}{s_3}\)
-\item \(\forall_{i=0}^{i=n-1} o_i \leftarrow s \times w_i \times x_i\)
+\item \(\alpha = ((\sum_i {x_i}^2)/n)+\epsilon\)
+\item \(o_i \leftarrow \frac{ w_i \times x_i}{\alpha}\)
   \ee
 
   \clearpage
@@ -90,5 +126,47 @@ Arguments in Table~\ref{args_softmax}
 \item \(s = \sum_{i=0}^{i=n-1} x_i\)
 \item \(\forall_{i=0}^{i=n-1} x_i \leftarrow \frac{x_i}{s}\)
   \ee
+
+  \section{Forward}
+Arguments in Table~\ref{args_forward}
+  \begin{table}[hbtp]
+    \centering
+    \begin{tabular}{|l||l|l|} \hline \hline
+      {\bf Argument} & {\bf Type} & {\bf Comments}  \\ \hline 
+      \(T\) & {\tt Transformer} & pointer \\ \hline 
+      \(t\) & integer & token \(0 \leq t < n_V\) \\ \hline
+      \(p\) & integer & pos \\ \hline
+    \hline
+    \end{tabular}
+      \caption{Arguments for forward}
+      \label{args_forward}
+  \end{table}
+
+\begin{figure}
+\centering
+\fbox{
+\begin{minipage}{15cm}
+  \begin{tabbing} % 
+    \hspace*{0.25in} \= \hspace*{0.25in} \= \hspace*{0.25in} \= \kill
+
+\(x \leftarrow W_t[t]\) \\ \\
+    {\bf for}  each layer \(l\) {\bf do} \+ \\
+    attention rmsnorm \\
+    \(x_b \leftarrow {\mathrm rmsnorm}(x, W_{ra}[l]\) \\ 
+    locate key and value in cache  \\
+    \(x_{kc} \leftarrow (S_{kc}[l][p]\) \\ 
+    \(x_{vc} \leftarrow (S_{vc}[l][p]\) \\ 
+    \(XXX \leftarrow {\mathrm matmul}(x_{kc}, x_b, W_{wk}[l], )\)
+SOME JUNK \- \\
+    {\bf endfor} \\
+  \end{tabbing}
+\end{minipage}
+}
+      \caption{Pseudo-code for forward}
+      \label{code_forward}
+  \end{figure}
+
 \end{document}
+
+
 

@@ -3,7 +3,6 @@
 #define WHEREAMI { fprintf(stderr, "Line %3d of File %s \n", __LINE__, __FILE__);  }
 /*-------------------------------------------------------*/
 #define go_BYE(x) { WHEREAMI; status = x ; goto BYE; }
-#define err_go_BYE() { fprintf(stderr, "Error = %s \n", strerror(errno)); go_BYE(-1); }
 /*-------------------------------------------------------*/
 
 #define cBYE(x) { if ( (x) != 0 ) { go_BYE((x)) } }
@@ -49,48 +48,7 @@
   } \
 }
 
-#define chk_range(xval, lb_incl, ub_excl) { if ( ( (xval) < (lb_incl) ) || ( (xval) >= (ub_excl ) ) ) { go_BYE(-1); } }
+#define get_2d_ptr(P, x, nX) { (P + (x*nX)) }
+#define get_3d_ptr(P, x, y, nX, nY) { (P + (x*nX*nY) + (y*nY)) }
 
-// TODO DELETE #define get_bit(x, i) ((x) & ((uint64_t) 1 << (i)))
-
-#define is_ith_bit_set(x, i) ((x) & ((uint64_t) 1 << (i))) == 0 ? false : true 
-
-#define set_bit(x, i) (x = (x) | ((uint64_t) 1 << (i)))
-
-/* Following assumes word starts at 0's */
-#define set_bit_val(word,  bit_idx, val) { word = word | (val << bit_idx ) }
-
-#define unset_bit(x, i) (x = (x) & ~((uint64_t) 1 << (i)))
-
-#define mcr_get_bit(x, i) ((x) & ((uint64_t) 1 << (i)))
-
-#define mcr_is_ith_bit_set(x, i) ((x) & ((uint64_t) 1 << (i))) == 0 ? false : true 
-
-#define mcr_set_bit(x, i) (x = (x) | ((uint64_t) 1 << (i)))
-
-#define mcr_unset_bit(x, i) (x = (x) & ~((uint64_t) 1 << (i)))
-
-#define SET_BIT(x,i)  (x)[(i) / 8] |= (1 << ((i) % 8))
-#define CLEAR_BIT(x,i) (x)[(i) / 8] &= ~(1 << ((i) % 8))
-#define GET_BIT(x,i) (((x)[(i) / 8] & (1 << ((i) % 8))) > 0)
-// following is GCC statement expression
-// #define FOO(A) ({int retval; retval = do_something(A); retval;})
-#define mcr_get_bit_u64(in, i) ( { \
-    uint64_t ii = (uint64_t) i; \
-    uint64_t widx = ii >> 6; \
-    uint64_t bidx = ii & 0x3F; \
-    uint64_t val = ( in[widx] >> bidx )  & 0x1; \
-    val; })
-
-// following to make print easier to templatize
-#define PRI1 PRIi8
-#define PRI2 PRIi16
-#define PRI4 PRIi32
-#define PRI8 PRIi64
-#define PRF4 "lf"
-#define PRF8 "e"
-#define mcr_db_clean(conn, res) { \
-    if ( res != NULL ) { PQclear(res); res = NULL; } \
-    if ( conn != NULL ) { PQfinish(conn); conn = NULL; } \
-}
 #endif

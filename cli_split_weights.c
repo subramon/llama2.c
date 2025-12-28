@@ -1,5 +1,5 @@
 #include <stdio.h>
-#include "q_macros.h"
+#include "macros.h"
 #include "rs_mmap.h"
 #include "consts.h"
 #include "weights_file_layout.h"
@@ -8,6 +8,7 @@
 #include "mat_1d_to_bin_file.h"
 #include "mat_2d_to_bin_file.h"
 #include "mat_3d_to_bin_file.h"
+#include "mmap_weights.h"
 
 int
 main(
@@ -20,7 +21,8 @@ main(
   size_t split_sizes[sp_num]; 
   char *Z = NULL; size_t nZ = 0; 
   char *X = NULL; size_t nX = 0; char *bak_X = NULL; size_t bak_nX = 0;
-  Config C; 
+  Config C; memset(&C, 0, sizeof(Config));
+  TransformerWeights W; memset(&W, 0, sizeof(TransformerWeights));
   const char *wfile; // input weights fle 
   if ( argc != 2 ) { go_BYE(-1); }
   wfile = argv[1];
@@ -89,8 +91,23 @@ main(
   status = mat_1d_to_bin_file(&X, &nX, "_rms_final_weight.bin", 
       sizeof(float), C.dim);
   cBYE(status);
+  // create wcls
+  size_t off = C.seq_len * head_size / 2; // skip what used to be freq_cis_real (for RoPE)
+  X += off; nX -= off;
+  off =  C.seq_len * head_size / 2; // skip what used to be freq_cis_imag (for RoPE)
+  X += off; nX -= off;
+  // TODO P1 set shared_weights to true 
+  status = mat_1d_to_bin_file(&X, &nX, "_wcls.bin", 
+      sizeof(float), nX / sizeof(float)); // TODO P1 NOT SURE ABOUT THIS 
+  cBYE(status);
+  
+
   //-------------------------------------------------------
-  printf("Split file %s \n", wfile);
+  // Now read them in (mmap)
+  status = mmap_weights(&C, &W); cBYE(status);
+  // some testing
+  float *fptr = get_3d_ptr(W.wo, 0, 0, C.n_layers, C.n_heads * head_size);
+  printf("%f \n", *fptr);
 BYE:
   fclose_if_non_null(fp); 
   mcr_rs_munmap(bak_X, bak_nX);

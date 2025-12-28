@@ -32,13 +32,13 @@ OBJS  = $(SRCS:.c=.o)
 ISPC_OBJS  = $(ISPC_SRCS:.ispc=.o)
 
 rmsnorm_ispc.o : 
-	  ispc rmsnorm_ispc.ispc -o rmsnorm_ispc.o 
+	  ispc ${INCS} rmsnorm_ispc.ispc -o rmsnorm_ispc.o 
 
 softmax_ispc.o : 
-	ispc softmax_ispc.ispc -o softmax_ispc.o 
+	ispc ${INCS} softmax_ispc.ispc -o softmax_ispc.o 
 
 dot_prod_ispc.o : 
-	ispc dot_prod_ispc.ispc -o dot_prod_ispc.o 
+	ispc ${INCS} dot_prod_ispc.ispc -o dot_prod_ispc.o 
 
 run: run.o  ${OBJS}
 	$(CC) -o run run.o ${OBJS}  \
@@ -63,12 +63,14 @@ runq: runq.o  ${OBJS}
 cli_split_weights : cli_split_weights.o \
 	set_split_sizes.o \
 	read_config.o \
+	mmap_weights.o \
 	mat_1d_to_bin_file.o \
 	mat_2d_to_bin_file.o \
 	mat_3d_to_bin_file.o 
 	$(CC) -o cli_split_weights cli_split_weights.o  \
 	set_split_sizes.o \
 	read_config.o \
+	mmap_weights.o \
 	mat_1d_to_bin_file.o \
 	mat_2d_to_bin_file.o \
 	mat_3d_to_bin_file.o \

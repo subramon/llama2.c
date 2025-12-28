@@ -1,5 +1,5 @@
 #include <stdio.h>
-#include "q_macros.h"
+#include "macros.h"
 #include "rs_mmap.h"
 #include "consts.h"
 #include "weights_file_layout.h"

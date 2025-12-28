@@ -1,5 +1,5 @@
 #include <stdio.h>
-#include "q_macros.h"
+#include "macros.h"
 #include "rs_mmap.h"
 #include "consts.h"
 #include "weights_file_layout.h"
@@ -13,6 +13,7 @@ mmap_weights(
 {
   int status = 0;
   char *X = NULL; size_t nX = 0;
+  int head_size = ptr_C->dim / ptr_C->n_heads;
   // create token_embedding_table
   status = rs_mmap("_token_embedding_table.bin", &X, &nX, 0); cBYE(status);
   ptr_w->token_embedding_table = (float *)X; X = NULL;
@@ -65,10 +66,14 @@ mmap_weights(
   //-------------------------------------------------------
   // create rms_final_weight
   status = rs_mmap("_rms_final_weight.bin", &X, &nX, 0); cBYE(status);
-  ptr_w->rms_final_weight = (float *)X; X = NULL;
-  ptr_w->sz_rms_final = nX; nX = 0;
+  ptr_w->rms_final_weight = (float *)X; 
+  ptr_w->sz_rms_final = nX; 
   //-------------------------------------------------------
-  // TODO wcls
+  status = rs_mmap("_wcls.bin", &X, &nX, 0); cBYE(status);
+  ptr_w->wcls = ptr_w->token_embedding_table; // TODO P1 HACK 
+  ptr_w->sz_wcls = ptr_w->sz_tet;
+  //-------------------------------------------------------
+
 BYE:
   return status;
 }
