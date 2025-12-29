@@ -106,7 +106,7 @@ main(
   // Now read them in (mmap)
   status = mmap_weights(&C, &W); cBYE(status);
   // some testing
-  float *fptr = get_3d_ptr(W.wo, 0, 0, C.n_layers, C.n_heads * head_size);
+  float *fptr = mcr_get_3d_ptr(W.wo, 0, 0, C.n_layers, C.n_heads * head_size);
   printf("%f \n", *fptr);
 BYE:
   fclose_if_non_null(fp); 

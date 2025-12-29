@@ -48,7 +48,8 @@
   } \
 }
 
-#define get_2d_ptr(P, x, nX) { (P + (x*nX)) }
-#define get_3d_ptr(P, x, y, nX, nY) { (P + (x*nX*nY) + (y*nY)) }
+#define mcr_get_2d_ptr(P, x, nX) { (P + (x*nX)) }
+#define mcr_get_3d_ptr(P, x, y, nX, nY) { (P + (x*nX*nY) + (y*nY)) }
+#define mcr_round_up(x) { (uint32_t)(x) }
 
 #endif

@@ -3,9 +3,9 @@
 #include "rmsnorm.h"
 void 
 rmsnorm(
-    float*  restrict o, 
-    const float* const x, 
-    const float* const weight, 
+    float*  restrict o,  // OUTPUT 
+    const float* const x,  // INPUT 
+    const float* const weight,  // INPUT 
     int n
     ) 
 {

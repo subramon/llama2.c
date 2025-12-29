@@ -21,29 +21,14 @@
 #include "rmsnorm.h"
 #include "softmax.h"
 #include "mmap_weights.h"
+#include "run_state.h"
 
 int ispc_dim; // need to figure out where to put this 
 // ----------------------------------------------------------------------------
 // Transformer model
 #include "weights_file_layout.h"
-
-
-typedef struct {
-    // current wave of activations
-    float *x; // activation at current time stamp (dim,)
-    float *xb; // same, but inside a residual branch (dim,)
-    float *xb2; // an additional buffer just for convenience (dim,)
-    float *hb; // buffer for hidden dimension in the ffn (hidden_dim,)
-    float *hb2; // buffer for hidden dimension in the ffn (hidden_dim,)
-    float *q; // query (dim,)
-    float *k; // key (dim,)
-    float *v; // value (dim,)
-    float *att; // buffer for scores/attention values (n_heads, seq_len)
-    float *logits; // output logits
-    // kv cache
-    float* key_cache;   // (layer, seq_len, dim)
-    float* val_cache; // (layer, seq_len, dim)
-} RunState;
+// State
+#include "run_state.h"
 
 typedef struct {
     Config config; // the hyperparameters of the architecture (the blueprint)
@@ -54,77 +39,6 @@ typedef struct {
     float* data; // memory mapped data pointer
     ssize_t file_size; // size of the checkpoint file in bytes
 } Transformer;
-
-int
-malloc_run_state(
-    RunState* s, 
-    Config* p
-    ) 
-{
-  int status = 0;
-  // we calloc instead of malloc to keep valgrind happy
-  // START: Get dimensions of various vectors we will allocate now 
-  int kv_dim = (p->dim * p->n_kv_heads) / p->n_heads;
-  uint32_t cache_len = p->n_layers * p->seq_len * kv_dim;
-  // STOP : Get dimensions of various vectors we will allocate now 
-  // START: over-allocate to get stuff to align for ISPC
-  ispc_dim = ( p->dim / FLOATS_IN_REG ) * FLOATS_IN_REG;
-  if  ( ispc_dim != p->dim  ) { 
-    ispc_dim += FLOATS_IN_REG; 
-  }
-  uint32_t ispc_vocab_size = ( p->vocab_size / FLOATS_IN_REG ) * FLOATS_IN_REG;
-  if  ( ispc_vocab_size != p->vocab_size  ) { 
-    ispc_vocab_size += FLOATS_IN_REG; 
-  }
-  uint32_t ispc_cache_len = 
-    ( cache_len / FLOATS_IN_REG ) * FLOATS_IN_REG;
-  if  ( ispc_cache_len != cache_len ) { 
-    ispc_cache_len += FLOATS_IN_REG;
-  }
-  uint32_t ispc_att_len = 
-    (p->n_heads * p->seq_len/FLOATS_IN_REG)*FLOATS_IN_REG;
-  if ( ispc_att_len != p->n_heads * p->seq_len ) {
-    ispc_att_len += FLOATS_IN_REG;
-  }
-  // STOP: over-allocate to get stuff to align for ISPC
-
-  s->x   = calloc(ispc_dim, sizeof(float));
-  s->xb  = calloc(ispc_dim, sizeof(float));
-  s->xb2 = calloc(ispc_dim, sizeof(float));
-  s->hb  = calloc(p->hidden_dim, sizeof(float));
-  s->hb2 = calloc(p->hidden_dim, sizeof(float));
-  s->q   = calloc(ispc_dim, sizeof(float));
-  s->key_cache   = calloc(ispc_cache_len, sizeof(float));
-  s->val_cache = calloc(ispc_cache_len, sizeof(float));
-  s->att    = calloc(ispc_att_len, sizeof(float));
-  s->logits = calloc(ispc_vocab_size, sizeof(float));
-  // ensure all mallocs went fine
-  if (!s->x || !s->xb || !s->xb2 || !s->hb || !s->hb2 || !s->q
-      || !s->key_cache || !s->val_cache || !s->att || !s->logits) {
-    fprintf(stderr, "malloc failed!\n");
-    go_BYE(-1); 
-  }
-BYE:
-  return status;
-}
-
-void 
-free_run_state(
-    RunState* s
-    ) 
-{
-  free_if_non_null(s->x);
-  free_if_non_null(s->xb);
-  free_if_non_null(s->xb2);
-  free_if_non_null(s->hb);
-  free_if_non_null(s->hb2);
-  free_if_non_null(s->q);
-  free_if_non_null(s->att);
-  free_if_non_null(s->logits);
-  free_if_non_null(s->key_cache);
-  free_if_non_null(s->val_cache);
-}
-
 
 int
 read_checkpoint(
@@ -220,6 +134,7 @@ forward(
   int hidden_dim =  p->hidden_dim;
   int head_size = dim / p->n_heads;
 
+  if ( ( pos < 0 ) || ( pos >= p->seq_len ) ) { go_BYE(-1); }
   // copy the token embedding into x
   float* content_row = w->token_embedding_table + token * dim;
   memcpy(x, content_row, dim*sizeof(*x));
@@ -230,18 +145,15 @@ forward(
     rmsnorm(s->xb, x, w->rms_att_weight + l*dim, dim);
 
     // key and value point to the kv cache
+    float *s_k = mcr_get_3d_ptr(s->key_cache, l, pos, p->seq_len, kv_dim);
+    float *s_v = mcr_get_3d_ptr(s->val_cache, l, pos, p->seq_len, kv_dim);
+    // TODO P1 delete loff below 
     int loff = l * p->seq_len * kv_dim; // kv cache layer offset for convenience
-    float *s_k = get_3d_ptr(s->key_cache, l, pos, p->seq_len, kv_dim);
-    float *s_v = get_3d_ptr(s->val_cache, l, pos, p->seq_len, kv_dim);
-#ifdef DEBUG
-    s->k = s->key_cache + loff + pos * kv_dim;
-    s->v = s->val_cache + loff + pos * kv_dim;
-    if ( ( s->k - s_k ) != 0 ) { go_BYE(-1); }
-    if ( ( s->v - s_v ) != 0 ) { go_BYE(-1); }
-#endif
-    float *w_q = get_3d_ptr(w->wq, l, 0, dim, dim);
-    float *w_k = get_3d_ptr(w->wk, l, 0, dim, kv_dim);
-    float *w_v = get_3d_ptr(w->wv, l, 0, dim, kv_dim);
+    // OLD s->k = s->key_cache + loff + pos * kv_dim;
+    // OLD s->v = s->val_cache + loff + pos * kv_dim;
+    float *w_q = mcr_get_3d_ptr(w->wq, l, 0, dim, dim);
+    float *w_k = mcr_get_3d_ptr(w->wk, l, 0, dim, kv_dim);
+    float *w_v = mcr_get_3d_ptr(w->wv, l, 0, dim, kv_dim);
 #ifdef DEBUG
     if ( w_q != w->wq + (l*dim*dim) ) { go_BYE(-1); }
     if ( w_k != w->wk + (l*dim*kv_dim) ) { go_BYE(-1); }
@@ -262,7 +174,7 @@ forward(
       float fci = sinf(val);
       int rotn = i < kv_dim ? 2 : 1; // how many vectors? 2 = q & k, 1 = q only
       for (int v = 0; v < rotn; v++) {
-        float* vec = v == 0 ? s->q : s->k; // the vector to rotate (query or key)
+        float* vec = v == 0 ? s->q : s_k; // the vector to rotate (query or key)
         float v0 = vec[i];
         float v1 = vec[i+1];
         vec[i]   = v0 * fcr - v1 * fci;
@@ -271,13 +183,12 @@ forward(
     }
 
     // multihead attention. iterate over all heads in parallel
-    int h;
-#pragma omp parallel for private(h)
-    for (h = 0; h < p->n_heads; h++) {
+#pragma omp parallel for 
+    for ( int h = 0; h < p->n_heads; h++) {
       // get the query vector for this head
-      float* q = s->q + h * head_size;
+      float* q_h = s->q + h * head_size; // ???? 
       // attention scores for this head
-      float* att = s->att + h * p->seq_len;
+      float* att_h = s->att + h * p->seq_len;
       // iterate over all timesteps, including the current one
       for (int t = 0; t <= pos; t++) {
         // get the key vector for this head and at this timestep
@@ -285,15 +196,15 @@ forward(
         // calculate the attention score as the dot product of q and k
         float score = 0.0f;
         for (int i = 0; i < head_size; i++) {
-          score += q[i] * k[i];
+          score += q_h[i] * k[i];
         }
         score /= sqrtf(head_size);
         // save the score to the attention buffer
-        att[t] = score;
+        att_h[t] = score;
       }
 
       // softmax the scores to get attention weights, from 0..pos inclusively
-      softmax(att, pos + 1);
+      softmax(att_h, pos + 1);
 
       // weighted sum of the values, store back into xb
       float* xb = s->xb + h * head_size;
@@ -302,7 +213,7 @@ forward(
         // get the value vector for this head and at this timestep
         float* v = s->val_cache + loff + t * kv_dim + (h / kv_mul) * head_size;
         // get the attention weight for this timestep
-        float a = att[t];
+        float a = att_h[t];
         // accumulate the weighted value into xb
         for (int i = 0; i < head_size; i++) {
           xb[i] += a * v[i];
