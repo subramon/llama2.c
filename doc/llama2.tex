@@ -51,9 +51,10 @@ then \(T_i\) is a vector of length \(n_2\)
       {\bf Abbreviation} & {\bf C code} &  {\bf Comments} \\ \hline
       \(n_D\) & {\tt dim} & \\ \hline
       \(n_{HD}\) & {\tt hidden\_dim} & \\ \hline
+      \(n_{KVD}\) & {\tt n\_kv\_dim} & \(n_D \times n_{KVH} / n_H\) \\ \hline
       \(n_L\) & {\tt n\_layers} & \\ \hline
       \(n_H\) & {\tt n\_heads} & \\ \hline
-      \(n_{HKV}\) & {\tt n\_kv\_heads} & \\ \hline
+      \(n_{KVH}\) & {\tt n\_kv\_heads} & \\ \hline
 
       \(n_V\) & {\tt vocab\_size} & \\ \hline
       \(n_S\) & {\tt seq\_len} & \\ \hline
@@ -70,16 +71,41 @@ then \(T_i\) is a vector of length \(n_2\)
 
 \begin{table}[hbtp]
 \centering
-\begin{tabular}{|l||l|l|l|} \hline \hline
-{\bf Abbreviation} & {\bf C code} & {\bf Dimensions}  & {\bf Comments} \\ \hline 
+\begin{tabular}{|l||l|l|l|l|l|} \hline \hline
+  {\bf Purpose} &   {\bf Abbreviation} & {\bf C code} & {\bf Dim1}  & {\bf Dim2} & {\bf Dim3} \\ \hline 
 \hline
-\(W_t\) & token embedding table & 2 & \(n_V \times n_D\) \\ \hline
-\(W_{att}\) & rms\_att\_weight & 2 & \(n_L \times n_D \) \\ \hline
-\(W_{ffn}\) & rms\_ffn\_weight & 2 & \(n_L \times n_D \) \\ \hline
-\(W_q\) & w\_q & 3 & \(n_L \times n_D \times (n_H \times s_H)\) \\ \hline
-\(W_k\) & w\_k & 3 & \(n_L \times n_D \times (n_{HKV} \times s_H)\) \\ \hline
-\(W_v\) & w\_v & 3 & \(n_L \times n_D \times (n_{HKV} \times s_H)\) \\ \hline
-\(W_o\) & w\_o & 3 & \(n_L \times (n_H \times s_H) \times n_D\) \\ \hline
+  & \(x\) & x & \(n_D\) & & \\ \hline
+  & \(xb\) & xb & \(n_D\) & & \\ \hline
+  & \(xb2\) & xb2 & \(n_D\) & & \\ \hline
+  & \(xhb\) & xhb & \(n_{HD}\) & & \\ \hline
+  & \(xhb2\) & xhb2 & \(n_{HD}\) & & \\ \hline
+  & \(q\) & q & \(n_H\) & \(s_H\) & \\ \hline
+  & \(kc\) & key\_cache & \(n_L\) & \(n_S\) & \(n_{KVD}\)\\ \hline
+  & \(vc\) & val\_cache & \(n_L\) & \(n_S\) & \(n_{KVD}\)\\ \hline
+  & \(att\) & att & \(n_H\) & \(n_S\) &  \\ \hline
+  & \(logits\) & logits & \(n_V\) & & \\ \hline
+\hline
+\end{tabular}
+\caption{State: Mapping math notation to C code} 
+\label{state_math_notation}
+\end{table}
+
+\begin{table}[hbtp]
+\centering
+\begin{tabular}{|l||l|l|l|l|l|} \hline \hline
+  {\bf Purpose} &   {\bf Abbreviation} & {\bf C code} & {\bf Dim1}  & {\bf Dim2} & {\bf Dim3} \\ \hline 
+\hline
+Token Embedding  & \(W_t\) & token embedding table & \(n_V\) & \(n_D\) & \\ \hline
+  \hline
+  Normalization & \(W_{att}\) & rms\_att\_weight & \(n_L\) & \(n_D \) & \\ \hline
+  Normalization & \(W_{ffn}\) & rms\_ffn\_weight & \(n_L\) & \(n_D \) & \\ \hline
+  \hline
+  XXX &  \(W_{fin}\) & rms\_final\_weight & \(n_D \) & & \\ \hline
+  \hline
+  Attention &  \(W_q\) & w\_q & \(n_L\) &  \(n_D\) & \(n_H \times s_H\) \\ \hline
+  Attention & \(W_k\) & w\_k & \(n_L\) & \(n_D\) & \(n_{KVH} \times s_H\) \\ \hline
+  Attention & \(W_v\) & w\_v & \(n_L\) & \(n_D\) & \(n_{KVH} \times s_H\) \\ \hline
+  Attention & \(W_o\) & w\_o & \(n_L\) & \(n_H \times s_H\) & \(n_D\) \\ \hline
 \hline
 \end{tabular}
 \caption{Weights: Mapping math notation to C code} 
@@ -105,24 +131,29 @@ Arguments in Table~\ref{args_forward}
       \label{args_forward}
   \end{table}
 
+\newcommand{\D}{\mathrm{dim}}
 \begin{figure}
 \centering
 \fbox{
 \begin{minipage}{15cm}
   \begin{tabbing} % 
     \hspace*{0.25in} \= \hspace*{0.25in} \= \hspace*{0.25in} \= \kill
-
+\(\mathrm{forward}(T, t, p)\) \+ \\
+  \(T\) Transformer \\ 
+  \(t\) token \\ 
+  \(p\) pos \- \\ 
+%--------------------------
 \(x \leftarrow W_t[t]\) \\ \\
-    {\bf for}  each layer \(l\) {\bf do} \+ \\
-    attention rmsnorm \\
-    \(x_b \leftarrow {\mathrm rmsnorm}(x, W_{ra}[l]\) \\ 
-    locate key and value in cache  \\
-    \(x_{kc} \leftarrow (S_{kc}[l][p]\) \\ 
-    \(x_{vc} \leftarrow (S_{vc}[l][p]\) \\ 
-    \(XXX \leftarrow {\mathrm matmul}(x_{kc}, x_b, W_{wk}[l], )\)
+{\bf for}  each layer \(l\) {\bf do} \+ \\
+  attention rmsnorm \\
+  \(xb \leftarrow {\mathrm rmsnorm}(x, W_{ra}[l]\) \\ 
+  locate key and value in cache  \\
+  \(k \leftarrow (S_{kc}[l][p]\) \\ 
+  \(v \leftarrow (S_{vc}[l][p]\) \\ 
+  \(q \leftarrow {\mathrm matmul}(xb, W_{wq}[l], \D, \D)\) \\
 SOME JUNK \- \\
-    {\bf endfor} \\
-  \end{tabbing}
+  {\bf endfor} \\
+\end{tabbing}
 \end{minipage}
 }
       \caption{Pseudo-code for forward}
@@ -177,6 +208,4 @@ Arguments in Table~\ref{args_softmax}
   \ee
 
 \end{document}
-
-
 

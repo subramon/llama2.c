@@ -141,24 +141,21 @@ forward(
 
   // forward all the layers
   for( int l = 0; l < p->n_layers; l++) {
+    // w_rms_att_k = w->rms_att_weight[l]
+    float *w_rms_att_l = mcr_get_2d_ptr(w->rms_att_weight, l, dim);
     // attention rmsnorm
-    rmsnorm(s->xb, x, w->rms_att_weight + l*dim, dim);
+    rmsnorm(s->xb, x, w_rms_att_l, dim);
 
-    // key and value point to the kv cache
+    // s_k and s_v point to appropriate location in kv cache
     float *s_k = mcr_get_3d_ptr(s->key_cache, l, pos, p->seq_len, kv_dim);
     float *s_v = mcr_get_3d_ptr(s->val_cache, l, pos, p->seq_len, kv_dim);
     // TODO P1 delete loff below 
     int loff = l * p->seq_len * kv_dim; // kv cache layer offset for convenience
     // OLD s->k = s->key_cache + loff + pos * kv_dim;
     // OLD s->v = s->val_cache + loff + pos * kv_dim;
-    float *w_q = mcr_get_3d_ptr(w->wq, l, 0, dim, dim);
-    float *w_k = mcr_get_3d_ptr(w->wk, l, 0, dim, kv_dim);
-    float *w_v = mcr_get_3d_ptr(w->wv, l, 0, dim, kv_dim);
-#ifdef DEBUG
-    if ( w_q != w->wq + (l*dim*dim) ) { go_BYE(-1); }
-    if ( w_k != w->wk + (l*dim*kv_dim) ) { go_BYE(-1); }
-    if ( w_v != w->wv + (l*dim*kv_dim) ) { go_BYE(-1); }
-#endif
+    float *w_q = mcr_3_to_2_ptr(w->wq, l, dim, dim);
+    float *w_k = mcr_3_to_2_ptr(w->wk, l, dim, kv_dim);
+    float *w_v = mcr_3_to_2_ptr(w->wv, l, dim, kv_dim);
 
     // qkv matmuls for this position
     matmul(s->q, s->xb, w_q, dim, dim);
