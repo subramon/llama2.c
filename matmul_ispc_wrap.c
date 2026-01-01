@@ -1,4 +1,4 @@
-#include "dot_prod_ispc.h"
+#include "dot_prod.h"
 #include "matmul_ispc_wrap.h"
 void 
 matmul(

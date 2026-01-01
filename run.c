@@ -22,6 +22,10 @@
 #include "softmax.h"
 #include "mmap_weights.h"
 #include "run_state.h"
+#include "rope.h"
+#include "dot_prod.h"
+#include "add_to.h"
+#include "swiglu.h"
 
 int ispc_dim; // need to figure out where to put this 
 // ----------------------------------------------------------------------------
@@ -142,7 +146,7 @@ forward(
   // forward all the layers
   for( int l = 0; l < p->n_layers; l++) {
     // w_rms_att_k = w->rms_att_weight[l]
-    float *w_rms_att_l = mcr_get_2d_ptr(w->rms_att_weight, l, dim);
+    float *w_rms_att_l = mcr_2_to_1_ptr(w->rms_att_weight, l, dim);
     // attention rmsnorm
     rmsnorm(s->xb, x, w_rms_att_l, dim);
 
@@ -163,38 +167,22 @@ forward(
     matmul(s_v,  s->xb, w_v, dim, kv_dim);
 
     // RoPE relative positional encoding: complex-valued rotate q and k in each head
-    for (int i = 0; i < dim; i+=2) {
-      int head_dim = i % head_size;
-      float freq = 1.0f / powf(10000.0f, head_dim / (float)head_size);
-      float val = pos * freq;
-      float fcr = cosf(val);
-      float fci = sinf(val);
-      int rotn = i < kv_dim ? 2 : 1; // how many vectors? 2 = q & k, 1 = q only
-      for (int v = 0; v < rotn; v++) {
-        float* vec = v == 0 ? s->q : s_k; // the vector to rotate (query or key)
-        float v0 = vec[i];
-        float v1 = vec[i+1];
-        vec[i]   = v0 * fcr - v1 * fci;
-        vec[i+1] = v0 * fci + v1 * fcr;
-      }
-    }
+    status = rope(dim, kv_dim, head_size, pos, s->q, s_k); cBYE(status);
 
     // multihead attention. iterate over all heads in parallel
 #pragma omp parallel for 
     for ( int h = 0; h < p->n_heads; h++) {
       // get the query vector for this head
-      float* q_h = s->q + h * head_size; // ???? 
+      float* q_h = mcr_2_to_1_ptr(s->q, h, head_size); 
       // attention scores for this head
-      float* att_h = s->att + h * p->seq_len;
+      float* att_h = mcr_2_to_1_ptr(s->att, h, p->seq_len);
       // iterate over all timesteps, including the current one
       for (int t = 0; t <= pos; t++) {
         // get the key vector for this head and at this timestep
         float* k = s->key_cache + loff + t * kv_dim + (h / kv_mul) * head_size;
         // calculate the attention score as the dot product of q and k
-        float score = 0.0f;
-        for (int i = 0; i < head_size; i++) {
-          score += q_h[i] * k[i];
-        }
+        float score;
+        dot_prod(q_h, k, head_size, &score); 
         score /= sqrtf(head_size);
         // save the score to the attention buffer
         att_h[t] = score;
@@ -222,12 +210,11 @@ forward(
     matmul(s->xb2, s->xb, w->wo + l*dim*dim, dim, dim);
 
     // residual connection back into x
-    for (int i = 0; i < dim; i++) {
-      x[i] += s->xb2[i];
-    }
+    add_to(x, s->xb2, dim); 
 
     // ffn rmsnorm
-    rmsnorm(s->xb, x, w->rms_ffn_weight + l*dim, dim);
+    float *rms_ffn_l = mcr_2_to_1_ptr(w->rms_ffn_weight, l, dim);
+    rmsnorm(s->xb, x, rms_ffn_l, dim);
 
     // Now for FFN in PyTorch we have: self.w2(F.silu(self.w1(x)) * self.w3(x))
     // first calculate self.w1(x) and self.w3(x)
@@ -235,14 +222,7 @@ forward(
     matmul(s->hb2, s->xb, w->w3 + l*dim*hidden_dim, dim, hidden_dim);
 
     // SwiGLU non-linearity
-    for (int i = 0; i < hidden_dim; i++) {
-      float val = s->hb[i];
-      // silu(x)=x*σ(x), where σ(x) is the logistic sigmoid
-      val *= (1.0f / (1.0f + expf(-val)));
-      // elementwise multiply with w3(x)
-      val *= s->hb2[i];
-      s->hb[i] = val;
-    }
+    swiglu(s->hb, s->hb2, hidden_dim);
 
     // final matmul to get the output of the ffn
     matmul(s->xb, s->hb, w->w2 + l*dim*hidden_dim, hidden_dim, dim);

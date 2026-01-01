@@ -25,7 +25,6 @@ malloc_run_state(
   size_t ispc_vocab_size = mcr_round_up(p->vocab_size);
   size_t ispc_seq_len = mcr_round_up(p->seq_len);
   size_t ispc_kv_dim = mcr_round_up(kv_dim);
-  size_t ispc_head_size = mcr_round_up(head_size);
   // STOP: over-allocate to get stuff to align for ISPC
 
   s->x   = calloc(ispc_dim, sizeof(float));
@@ -33,7 +32,7 @@ malloc_run_state(
   s->xb2 = calloc(ispc_dim, sizeof(float));
   s->hb  = calloc(ispc_hidden_dim, sizeof(float));
   s->hb2 = calloc(ispc_hidden_dim, sizeof(float));
-  s->q   = calloc((p->n_heads * ispc_head_size), sizeof(float));
+  s->q   = calloc((p->n_heads * head_size), sizeof(float));
   s->key_cache = calloc((p->n_layers * p->seq_len * ispc_kv_dim), sizeof(float));
   s->val_cache = calloc((p->n_layers * p->seq_len * ispc_kv_dim), sizeof(float));
   s->att    = calloc((p->n_heads * ispc_seq_len), sizeof(float));

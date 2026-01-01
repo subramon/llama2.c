@@ -27,6 +27,10 @@ SRCS += softmax.c
 SRCS += orig_mmap_weights.c 
 SRCS += mmap_weights.c 
 SRCS += run_state.c 
+SRCS += rope.c 
+SRCS += dot_prod.c 
+SRCS += add_to.c 
+SRCS += swiglu.c 
 
 OBJS  = $(SRCS:.c=.o)
 
@@ -48,10 +52,16 @@ run: run.o  ${OBJS}
 
 run_ispc: run.o  ${ISPC_OBJS} matmul_ispc_wrap.o \
 	mmap_weights.o \
+	rope.o \
+	add_to.o \
+	swiglu.o \
 	run_state.o 
 	$(CC) -o run_ispc run.o ${ISPC_OBJS} \
 	matmul_ispc_wrap.o \
 	mmap_weights.o \
+	rope.o \
+	add_to.o \
+	swiglu.o \
 	run_state.o  \
 	${RSUTILS_SRC_ROOT}/src/librsutils.so \
 	-lm -lgomp

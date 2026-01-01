@@ -125,41 +125,59 @@ Arguments in Table~\ref{args_forward}
       \(T\) & {\tt Transformer} & pointer \\ \hline 
       \(t\) & integer & token \(0 \leq t < n_V\) \\ \hline
       \(p\) & integer & pos \\ \hline
+      \hline 
+      {\bf Argument} & {\bf Type} & {\bf Comments}  \\ \hline 
+      \(d\) & integer & dim \\ 
     \hline
     \end{tabular}
-      \caption{Arguments for forward}
+      \caption{Arguments/Convenience Variables for forward}
       \label{args_forward}
   \end{table}
 
 \newcommand{\D}{\mathrm{dim}}
-\begin{figure}
-\centering
-\fbox{
-\begin{minipage}{15cm}
-  \begin{tabbing} % 
-    \hspace*{0.25in} \= \hspace*{0.25in} \= \hspace*{0.25in} \= \kill
-\(\mathrm{forward}(T, t, p)\) \+ \\
-  \(T\) Transformer \\ 
-  \(t\) token \\ 
-  \(p\) pos \- \\ 
-%--------------------------
-\(x \leftarrow W_t[t]\) \\ \\
-{\bf for}  each layer \(l\) {\bf do} \+ \\
-  attention rmsnorm \\
-  \(xb \leftarrow {\mathrm rmsnorm}(x, W_{ra}[l]\) \\ 
-  locate key and value in cache  \\
-  \(k \leftarrow (S_{kc}[l][p]\) \\ 
-  \(v \leftarrow (S_{vc}[l][p]\) \\ 
-  \(q \leftarrow {\mathrm matmul}(xb, W_{wq}[l], \D, \D)\) \\
-SOME JUNK \- \\
-  {\bf endfor} \\
-\end{tabbing}
-\end{minipage}
-}
-      \caption{Pseudo-code for forward}
-      \label{code_forward}
-  \end{figure}
+\newcommand{\KD}{\mathrm{kv\_dim}}
 
+
+Copy token into \(x\), Equation~\ref{eqn_token}
+\begin{equation}
+  \label{eqn_token}
+x \leftarrow W_t[t]
+\end{equation}
+
+{\bf for}  each layer \(l\) {\bf do} the following
+
+\be
+\item 
+attention rmsnorm,  Equation~\ref{eqn_att_rmsnorm}
+ \begin{equation}
+   \label{eqn_att_rmsnorm}
+xb \leftarrow {\mathrm rmsnorm}(x, W_{ra}[l]
+ \end{equation}
+
+\item  qkv matmuls for this position, 
+ Equations~\ref{eqn_xx}, ~\ref{eqn_yy}, ~\ref{eqn_zz}.
+ \begin{equation}
+   \label{eqn_xx}
+   S_{wq}[l][d] \leftarrow {\mathrm matmul}(xb, W_{wq}[l], n_D, n_D)
+ \end{equation}
+
+ \begin{equation}
+   \label{eqn_yy}
+   S_{kc}[l][p] \leftarrow {\mathrm matmul}(xb, W_{wk}[l], n_D, n_{KVD})
+ \end{equation}
+
+ \begin{equation}
+   \label{eqn_zz}
+S_{vc}[l][p] \leftarrow {\mathrm matmul}(xb, W_{wv}[l], n_D, n_{KVD})
+ \end{equation}
+
+ \item residual connection back into x, Equation~\ref{eqn_residual}
+   \begin{equation}
+     \label{eqn_residual}
+x \leftarrow x + xb2
+   \end{equation}
+
+ \ee
   \clearpage
 \subsection{rmsnorm}
 \label{rmsnorm}
