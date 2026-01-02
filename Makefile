@@ -17,9 +17,11 @@ INCS += -I${RSUTILS_SRC_ROOT}/inc/
 .c.o :
 	$(CC) -c -o $@ $< $(CFLAGS)  $(INCS)
 
-ISPC_SRCS += rmsnorm_ispc.ispc 
-ISPC_SRCS += softmax_ispc.ispc 
-ISPC_SRCS += dot_prod_ispc.ispc 
+ISPC_SRCS += ./ispc/rmsnorm.ispc 
+ISPC_SRCS += ./ispc/softmax.ispc 
+ISPC_SRCS += ./ispc/dot_prod.ispc 
+ISPC_SRCS += ./ispc/add_to.ispc 
+ISPC_SRCS += ./ispc/swiglu.ispc 
 
 SRCS += rmsnorm.c 
 SRCS += matmul.c 
@@ -36,14 +38,20 @@ OBJS  = $(SRCS:.c=.o)
 
 ISPC_OBJS  = $(ISPC_SRCS:.ispc=.o)
 
-rmsnorm_ispc.o : 
-	  ispc ${INCS} rmsnorm_ispc.ispc -o rmsnorm_ispc.o 
+ispc/add_to.o : 
+	  ispc ${INCS} ispc/add_to.ispc -o ispc/add_to.o 
 
-softmax_ispc.o : 
-	ispc ${INCS} softmax_ispc.ispc -o softmax_ispc.o 
+ispc/dot_prod.o : 
+	ispc ${INCS} ispc/dot_prod.ispc -o ispc/dot_prod.o 
 
-dot_prod_ispc.o : 
-	ispc ${INCS} dot_prod_ispc.ispc -o dot_prod_ispc.o 
+ispc/rmsnorm.o : 
+	  ispc ${INCS} ispc/rmsnorm.ispc -o ispc/rmsnorm.o 
+
+ispc/softmax.o : 
+	ispc ${INCS} ispc/softmax.ispc -o ispc/softmax.o 
+
+ispc/swiglu.o : 
+	  ispc ${INCS} ispc/swiglu.ispc -o ispc/swiglu.o 
 
 run: run.o  ${OBJS}
 	$(CC) -o run run.o ${OBJS}  \
@@ -123,3 +131,4 @@ clean:
 	rm -f run
 	rm -f runq
 	rm -f *.o
+	rm -f ispc/*.o

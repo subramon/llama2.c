@@ -33,14 +33,14 @@ malloc_run_state(
   s->hb  = calloc(ispc_hidden_dim, sizeof(float));
   s->hb2 = calloc(ispc_hidden_dim, sizeof(float));
   s->q   = calloc((p->n_heads * head_size), sizeof(float));
-  s->key_cache = calloc((p->n_layers * p->seq_len * ispc_kv_dim), sizeof(float));
-  s->val_cache = calloc((p->n_layers * p->seq_len * ispc_kv_dim), sizeof(float));
+  s->kc = calloc((p->n_layers * p->seq_len * ispc_kv_dim), sizeof(float));
+  s->vc = calloc((p->n_layers * p->seq_len * ispc_kv_dim), sizeof(float));
   s->att    = calloc((p->n_heads * ispc_seq_len), sizeof(float));
   s->logits = calloc(ispc_vocab_size, sizeof(float));
 
   // ensure all mallocs went fine
   if (!s->x || !s->xb || !s->xb2 || !s->hb || !s->hb2 || !s->q
-      || !s->key_cache || !s->val_cache || !s->att || !s->logits) {
+      || !s->kc || !s->vc || !s->att || !s->logits) {
     fprintf(stderr, "malloc failed!\n");
     go_BYE(-1); 
   }
@@ -61,6 +61,6 @@ free_run_state(
   free_if_non_null(s->q);
   free_if_non_null(s->att);
   free_if_non_null(s->logits);
-  free_if_non_null(s->key_cache);
-  free_if_non_null(s->val_cache);
+  free_if_non_null(s->kc);
+  free_if_non_null(s->vc);
 }

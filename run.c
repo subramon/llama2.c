@@ -146,20 +146,20 @@ forward(
   // forward all the layers
   for( int l = 0; l < p->n_layers; l++) {
     // w_rms_att_k = w->rms_att_weight[l]
-    float *w_rms_att_l = mcr_2_to_1_ptr(w->rms_att_weight, l, dim);
+    float *w_rms_att_l = mcr_2d_to_1d(w->rms_att_weight, l, dim);
     // attention rmsnorm
     rmsnorm(s->xb, x, w_rms_att_l, dim);
 
     // s_k and s_v point to appropriate location in kv cache
-    float *s_k = mcr_get_3d_ptr(s->key_cache, l, pos, p->seq_len, kv_dim);
-    float *s_v = mcr_get_3d_ptr(s->val_cache, l, pos, p->seq_len, kv_dim);
+    float *s_k = mcr_3d_to_1d(s->kc, l, pos, p->seq_len, kv_dim);
+    float *s_v = mcr_3d_to_1d(s->vc, l, pos, p->seq_len, kv_dim);
     // TODO P1 delete loff below 
     int loff = l * p->seq_len * kv_dim; // kv cache layer offset for convenience
-    // OLD s->k = s->key_cache + loff + pos * kv_dim;
-    // OLD s->v = s->val_cache + loff + pos * kv_dim;
-    float *w_q = mcr_3_to_2_ptr(w->wq, l, dim, dim);
-    float *w_k = mcr_3_to_2_ptr(w->wk, l, dim, kv_dim);
-    float *w_v = mcr_3_to_2_ptr(w->wv, l, dim, kv_dim);
+    // OLD s->k = s->kc + loff + pos * kv_dim;
+    // OLD s->v = s->vc + loff + pos * kv_dim;
+    float *w_q = mcr_3d_to_2d(w->wq, l, dim, dim);
+    float *w_k = mcr_3d_to_2d(w->wk, l, dim, kv_dim);
+    float *w_v = mcr_3d_to_2d(w->wv, l, dim, kv_dim);
 
     // qkv matmuls for this position
     matmul(s->q, s->xb, w_q, dim, dim);
@@ -173,13 +173,13 @@ forward(
 #pragma omp parallel for 
     for ( int h = 0; h < p->n_heads; h++) {
       // get the query vector for this head
-      float* q_h = mcr_2_to_1_ptr(s->q, h, head_size); 
+      float* q_h = mcr_2d_to_1d(s->q, h, head_size); 
       // attention scores for this head
-      float* att_h = mcr_2_to_1_ptr(s->att, h, p->seq_len);
+      float* att_h = mcr_2d_to_1d(s->att, h, p->seq_len);
       // iterate over all timesteps, including the current one
       for (int t = 0; t <= pos; t++) {
         // get the key vector for this head and at this timestep
-        float* k = s->key_cache + loff + t * kv_dim + (h / kv_mul) * head_size;
+        float* k = s->kc + loff + t * kv_dim + (h / kv_mul) * head_size;
         // calculate the attention score as the dot product of q and k
         float score;
         dot_prod(q_h, k, head_size, &score); 
@@ -196,7 +196,7 @@ forward(
       memset(xb, 0, head_size * sizeof(float));
       for (int t = 0; t <= pos; t++) {
         // get the value vector for this head and at this timestep
-        float* v = s->val_cache + loff + t * kv_dim + (h / kv_mul) * head_size;
+        float* v = s->vc + loff + t * kv_dim + (h / kv_mul) * head_size;
         // get the attention weight for this timestep
         float a = att_h[t];
         // accumulate the weighted value into xb
@@ -213,7 +213,7 @@ forward(
     add_to(x, s->xb2, dim); 
 
     // ffn rmsnorm
-    float *rms_ffn_l = mcr_2_to_1_ptr(w->rms_ffn_weight, l, dim);
+    float *rms_ffn_l = mcr_2d_to_1d(w->rms_ffn_weight, l, dim);
     rmsnorm(s->xb, x, rms_ffn_l, dim);
 
     // Now for FFN in PyTorch we have: self.w2(F.silu(self.w1(x)) * self.w3(x))
@@ -225,12 +225,11 @@ forward(
     swiglu(s->hb, s->hb2, hidden_dim);
 
     // final matmul to get the output of the ffn
-    matmul(s->xb, s->hb, w->w2 + l*dim*hidden_dim, hidden_dim, dim);
+    float *w2_ptr = mcr_3d_to_2d(w->w2, l, dim, hidden_dim);
+    matmul(s->xb, s->hb, w2_ptr, hidden_dim, dim);
 
     // residual connection
-    for (int i = 0; i < dim; i++) {
-      x[i] += s->xb[i];
-    }
+    add_to(x, s->xb, dim); 
   }
 
   // final rmsnorm
