@@ -61,15 +61,11 @@ run: run.o  ${OBJS}
 run_ispc: run.o  ${ISPC_OBJS} matmul_ispc_wrap.o \
 	mmap_weights.o \
 	rope.o \
-	add_to.o \
-	swiglu.o \
 	run_state.o 
 	$(CC) -o run_ispc run.o ${ISPC_OBJS} \
 	matmul_ispc_wrap.o \
 	mmap_weights.o \
 	rope.o \
-	add_to.o \
-	swiglu.o \
 	run_state.o  \
 	${RSUTILS_SRC_ROOT}/src/librsutils.so \
 	-lm -lgomp

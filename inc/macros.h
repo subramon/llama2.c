@@ -1,5 +1,6 @@
-#ifndef __Q_MACROS_H
-#define __Q_MACROS_H
+#ifndef __MACROS_H
+#define __MACROS_H
+#include "consts.h"
 #define WHEREAMI { fprintf(stderr, "Line %3d of File %s \n", __LINE__, __FILE__);  }
 /*-------------------------------------------------------*/
 #define go_BYE(x) { WHEREAMI; status = x ; goto BYE; }
@@ -51,6 +52,6 @@
 #define mcr_2d_to_1d(P, x, nX) { (P + (x*nX)) }
 #define mcr_3d_to_2d(P, x, nX, nY) { (P + (x*nX*nY) ) }
 #define mcr_3d_to_1d(P, x, y, nX, nY) { (P + (x*nX*nY)  + (y*nY)) }
-#define mcr_round_up(x) { (uint32_t)(x) }
+#define mcr_round_up(x) { ((((unsigned int)x >> LOG2_FLOATS_IN_REG ) << LOG2_FLOATS_IN_REG ) == x ? x : (((unsigned int)x >> LOG2_FLOATS_IN_REG ) +1)<< LOG2_FLOATS_IN_REG) }
 
-#endif
+#endif // __MACROS_H

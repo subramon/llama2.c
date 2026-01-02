@@ -1,7 +1,7 @@
 #include <stdio.h>
-#include "macros.h"
 #include "rs_mmap.h"
 #include "consts.h"
+#include "macros.h"
 #include "weights_file_layout.h"
 #include "set_split_sizes.h"
 #include "read_config.h"
@@ -106,7 +106,7 @@ main(
   // Now read them in (mmap)
   status = mmap_weights(&C, &W); cBYE(status);
   // some testing
-  float *fptr = mcr_get_3d_ptr(W.wo, 0, 0, C.n_layers, C.n_heads * head_size);
+  float *fptr = mcr_3d_to_1d(W.wo, 0, 0, C.n_layers, C.n_heads * head_size);
   printf("%f \n", *fptr);
 BYE:
   fclose_if_non_null(fp); 

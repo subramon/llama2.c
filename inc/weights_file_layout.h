@@ -66,6 +66,9 @@ typedef struct {
     float* rms_final_weight; // (dim,)
     size_t sz_rms_final;
     // (optional) classifier weights for the logits, on the last layer
+    // wcls (weights for the classification or unembedding layer) tensor 
+    // in Llama 2 inference has the shape (vocab_size, hidden_size).
+
     float* wcls;
     size_t sz_wcls;
 } TransformerWeights;

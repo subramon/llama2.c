@@ -218,8 +218,10 @@ forward(
 
     // Now for FFN in PyTorch we have: self.w2(F.silu(self.w1(x)) * self.w3(x))
     // first calculate self.w1(x) and self.w3(x)
-    matmul(s->hb, s->xb, w->w1 + l*dim*hidden_dim, dim, hidden_dim);
-    matmul(s->hb2, s->xb, w->w3 + l*dim*hidden_dim, dim, hidden_dim);
+    float *w1_ptr = mcr_3d_to_2d(w->w1, l, hidden_dim, dim);
+    float *w3_ptr = mcr_3d_to_2d(w->w3, l, hidden_dim, dim);
+    matmul(s->hb,  s->xb, w1_ptr, dim, hidden_dim);
+    matmul(s->hb2, s->xb, w3_ptr, dim, hidden_dim);
 
     // SwiGLU non-linearity
     swiglu(s->hb, s->hb2, hidden_dim);
@@ -235,7 +237,7 @@ forward(
   // final rmsnorm
   rmsnorm(x, x, w->rms_final_weight, dim);
 
-  // classifier into logits
+  // classifier into logits TODO use pointer for wcls 
   matmul(s->logits, x, w->wcls, p->dim, p->vocab_size);
 BYE:
   if ( status == 0 ) { return s->logits; } else { return NULL; }
