@@ -2,7 +2,7 @@
 #include "softmax.h"
 void 
 softmax(
-    float* x, 
+    float* restrict x, 
     int size
     ) 
 {

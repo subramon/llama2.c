@@ -1,5 +1,5 @@
 extern void 
 softmax(
-    float* x, 
+    float* restrict x, 
     int size
     );

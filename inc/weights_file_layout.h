@@ -8,8 +8,9 @@ typedef struct {
     int n_kv_heads; // number of key/value heads (can be < query heads because of multiquery)
     int vocab_size; // vocabulary size, usually 256 (byte-level)
     int seq_len; // max sequence length
-    int head_size; // aka d_head DERIVED as dim/ n_heads
 } Config;
+// WARNING! Do not add anything to the above struct. It will mess up
+// the way Karpathy loads the checkpoint file
 
 // listed in the order in which they appear in the weights file 
 typedef struct {

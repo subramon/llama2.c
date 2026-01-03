@@ -2,6 +2,7 @@
 
 #undef ISPC 
 #include <stdio.h>
+#include <omp.h>
 #include <stdlib.h>
 #include <stdint.h>
 #include <ctype.h>
@@ -170,13 +171,21 @@ forward(
     status = rope(dim, kv_dim, head_size, pos, s->q, key_ptr); cBYE(status);
 
     // multihead attention. iterate over all heads in parallel
-#pragma omp parallel for 
+    int nP = omp_get_num_procs(); int nP_outer = 1, nP_inner = 1;
+    if ( pos >= FLOATS_IN_CACHE_LINE * nP ) { 
+      nP_inner = nP; nP_outer = 1; 
+    }
+    else {
+      nP_inner = 1; nP_outer = nP; 
+    }
+#pragma omp parallel for num_threads(nP_outer)
     for ( int h = 0; h < p->n_heads; h++) {
       // get the query vector for this head
       const float* const q_h = mcr_2d_to_1d(s->q, h, head_size); 
       // attention scores for this head
       float* att_h = mcr_2d_to_1d(s->att, h, p->seq_len);
       // iterate over all timesteps, including the current one
+#pragma omp parallel for num_threads(nP_inner)
       for (int t = 0; t <= pos; t++) {
         // get the key vector for this head and at this timestep
         float* k = s->kc + loff + t * kv_dim + (h / kv_mul) * head_size;
@@ -194,6 +203,7 @@ forward(
       // weighted sum of the values, store back into xb
       float* const xb = s->xb + h * head_size;
       memset(xb, 0, head_size * sizeof(float));
+#pragma omp parallel for num_threads(nP_inner)
       for (int t = 0; t <= pos; t++) {
         // get the value vector for this head and at this timestep
         float* v = s->vc + loff + t * kv_dim + (h / kv_mul) * head_size;
