@@ -33,9 +33,9 @@ malloc_run_state(
   s->hb  = calloc(ispc_hidden_dim, sizeof(float));
   s->hb2 = calloc(ispc_hidden_dim, sizeof(float));
   s->q   = calloc((p->n_heads * head_size), sizeof(float));
-  s->kc = calloc((p->n_layers * p->seq_len * ispc_kv_dim), sizeof(float));
-  s->vc = calloc((p->n_layers * p->seq_len * ispc_kv_dim), sizeof(float));
-  s->att    = calloc((p->n_heads * ispc_seq_len), sizeof(float));
+  s->kc  = calloc((p->n_layers * p->seq_len * ispc_kv_dim), sizeof(float));
+  s->vc  = calloc((p->n_layers * p->seq_len * ispc_kv_dim), sizeof(float));
+  s->att = calloc((p->n_heads * ispc_seq_len), sizeof(float));
   s->logits = calloc(ispc_vocab_size, sizeof(float));
 
   // ensure all mallocs went fine

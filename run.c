@@ -149,7 +149,7 @@ forward(
   // forward all the layers
   for( int l = 0; l < p->n_layers; l++) {
     // attention rmsnorm
-    float *w_rms_att_l = mcr_2d_to_1d(w->rms_att_weight, l, dim);
+    float * const w_rms_att_l = mcr_2d_to_1d(w->rms_att_weight, l, dim);
     rmsnorm(s->xb, x, w_rms_att_l, dim);
 
     // key_ptr and val_ptr point to appropriate location in kv cache
@@ -215,7 +215,8 @@ forward(
     }
 
     // final matmul to get the output of the attention
-    matmul(s->xb2, s->xb, w->wo + l*dim*dim, dim, dim);
+    float *wo_ptr = mcr_3d_to_2d(w->wo, l, dim, dim);
+    matmul(s->xb2, s->xb, wo_ptr, dim, dim);
 
     // residual connection back into x
     add_to(x, s->xb2, dim); 
