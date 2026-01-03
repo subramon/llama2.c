@@ -139,9 +139,12 @@ forward(
   int kv_mul = p->n_heads / p->n_kv_heads; // integer multiplier of the kv sharing in multiquery
   int hidden_dim =  p->hidden_dim;
   int head_size = dim / p->n_heads;
+  size_t ispc_kv_dim = mcr_round_up(kv_dim);
 
+#ifdef DEBUG
   if ( ( pos < 0 ) || ( pos >= p->seq_len ) ) { go_BYE(-1); }
   if ( ( token < 0 ) || ( token >= p->vocab_size ) ) { go_BYE(-1); }
+#endif
   // copy the token embedding into x
   float* tet_ptr = mcr_2d_to_1d(w->token_embedding_table, token, dim);
   memcpy(x, tet_ptr, dim*sizeof(float));
@@ -153,13 +156,11 @@ forward(
     rmsnorm(s->xb, x, w_rms_att_l, dim);
 
     // key_ptr and val_ptr point to appropriate location in kv cache
-    float *key_ptr = mcr_3d_to_1d(s->kc, l, pos, p->seq_len, kv_dim);
-    float *val_ptr = mcr_3d_to_1d(s->vc, l, pos, p->seq_len, kv_dim);
-    // TODO P1 delete loff below 
-    int loff = l * p->seq_len * kv_dim; // kv cache layer offset for convenience
+    float *key_ptr = mcr_3d_to_1d(s->kc, l, pos, p->seq_len, ispc_kv_dim);
+    float *val_ptr = mcr_3d_to_1d(s->vc, l, pos, p->seq_len, ispc_kv_dim);
     float * const w_q = mcr_3d_to_2d(w->wq, l, dim, dim);
-    float * const w_k = mcr_3d_to_2d(w->wk, l, dim, kv_dim);
-    float * const w_v = mcr_3d_to_2d(w->wv, l, dim, kv_dim);
+    float * const w_k = mcr_3d_to_2d(w->wk, l, dim, ispc_kv_dim);
+    float * const w_v = mcr_3d_to_2d(w->wv, l, dim, ispc_kv_dim);
 
     // qkv matmuls for this position
     matmul(s->q,    s->xb, w_q, dim, dim);
@@ -188,10 +189,16 @@ forward(
 #pragma omp parallel for num_threads(nP_inner)
       for (int t = 0; t <= pos; t++) {
         // get the key vector for this head and at this timestep
-        float* k = s->kc + loff + t * kv_dim + (h / kv_mul) * head_size;
+        float *new_k = mcr_3d_to_1d(s->kc, l, t, p->seq_len, ispc_kv_dim);
+#ifdef DEBUG
+        int loff = l * p->seq_len * kv_dim; // kv cache layer offset for convenience
+        float *old_k = s->kc + loff + t * kv_dim + (h / kv_mul) * head_size;
+        new_k += (h / kv_mul) * head_size;
+        if ( old_k != new_k ) { go_BYE(-1); }
+#endif
         // calculate the attention score as the dot product of q and k
         float score;
-        dot_prod(q_h, k, head_size, &score); 
+        dot_prod(q_h, new_k, head_size, &score); 
         score /= sqrtf(head_size);
         // save the score to the attention buffer
         att_h[t] = score;
@@ -206,11 +213,17 @@ forward(
 #pragma omp parallel for num_threads(nP_inner)
       for (int t = 0; t <= pos; t++) {
         // get the value vector for this head and at this timestep
-        float* v = s->vc + loff + t * kv_dim + (h / kv_mul) * head_size;
+        int loff = l * p->seq_len * kv_dim; // kv cache layer offset for convenience
+        float *new_v = mcr_3d_to_1d(s->vc, l, t, p->seq_len, ispc_kv_dim);
+#ifdef DEBUG
+        float *old_v = s->vc + loff + t * kv_dim + (h / kv_mul) * head_size;
+        new_v += (h / kv_mul) * head_size;
+        if ( old_v != new_v ) { go_BYE(-1); }
+#endif
         // get the attention weight for this timestep
         float a = att_h[t];
         // accumulate the weighted value into xb
-        mul_add_to(xb, a, v, head_size); // xb_i += a * v[i]
+        mul_add_to(xb, a, new_v, head_size); // xb_i += a * v[i]
       }
     }
 

@@ -5,9 +5,9 @@ CC = gcc
 # the most basic way of building that is most likely to work on most systems
 all : run runq run_ispc cli_split_weights
 
-# CFLAGS := -g -O0
-CFLAGS := -O3
-# CFLAGS += -DDEBUG
+CFLAGS := -g -O0
+# CFLAGS := -O3
+CFLAGS += -DDEBUG
 CFLAGS += -flto # for Link Time Optimization 
 # CFLAGS += -msse4.1 # TODO 
 
