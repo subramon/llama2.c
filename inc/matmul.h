@@ -1,7 +1,7 @@
 extern void matmul(
-    float* xout, 
-    float* x, 
-    float* w, 
+    float * restrict xout, 
+    float * const x, 
+    float * const w, 
     int n, 
     int d
     );

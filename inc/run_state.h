@@ -14,8 +14,8 @@ typedef struct {
     float *att; // buffer for scores/attention values (n_heads, seq_len)
     float *logits; // output logits
     // kv cache
-    float* kc;   // (layer, seq_len, dim)
-    float* vc; // (layer, seq_len, dim)
+    float* kc;   // (layer, seq_len, kv_dim) // TODO P3 Kv_dim or dim?
+    float* vc; // (layer, seq_len, kv_dim) // TODO P3 Kv_dim or dim?
 } RunState;
 extern int
 malloc_run_state(

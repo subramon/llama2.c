@@ -25,6 +25,7 @@
 #include "rope.h"
 #include "dot_prod.h"
 #include "add_to.h"
+#include "mul_add_to.h"
 #include "swiglu.h"
 
 int ispc_dim; // need to figure out where to put this 
@@ -139,41 +140,40 @@ forward(
   int head_size = dim / p->n_heads;
 
   if ( ( pos < 0 ) || ( pos >= p->seq_len ) ) { go_BYE(-1); }
+  if ( ( token < 0 ) || ( token >= p->vocab_size ) ) { go_BYE(-1); }
   // copy the token embedding into x
-  float* content_row = w->token_embedding_table + token * dim;
-  memcpy(x, content_row, dim*sizeof(*x));
+  float* tet_ptr = mcr_2d_to_1d(w->token_embedding_table, token, dim);
+  memcpy(x, tet_ptr, dim*sizeof(float));
 
   // forward all the layers
   for( int l = 0; l < p->n_layers; l++) {
-    // w_rms_att_k = w->rms_att_weight[l]
-    float *w_rms_att_l = mcr_2d_to_1d(w->rms_att_weight, l, dim);
     // attention rmsnorm
+    float *w_rms_att_l = mcr_2d_to_1d(w->rms_att_weight, l, dim);
     rmsnorm(s->xb, x, w_rms_att_l, dim);
 
-    // s_k and s_v point to appropriate location in kv cache
-    float *s_k = mcr_3d_to_1d(s->kc, l, pos, p->seq_len, kv_dim);
-    float *s_v = mcr_3d_to_1d(s->vc, l, pos, p->seq_len, kv_dim);
+    // key_ptr and val_ptr point to appropriate location in kv cache
+    float *key_ptr = mcr_3d_to_1d(s->kc, l, pos, p->seq_len, kv_dim);
+    float *val_ptr = mcr_3d_to_1d(s->vc, l, pos, p->seq_len, kv_dim);
     // TODO P1 delete loff below 
     int loff = l * p->seq_len * kv_dim; // kv cache layer offset for convenience
-    // OLD s->k = s->kc + loff + pos * kv_dim;
-    // OLD s->v = s->vc + loff + pos * kv_dim;
-    float *w_q = mcr_3d_to_2d(w->wq, l, dim, dim);
-    float *w_k = mcr_3d_to_2d(w->wk, l, dim, kv_dim);
-    float *w_v = mcr_3d_to_2d(w->wv, l, dim, kv_dim);
+    float * const w_q = mcr_3d_to_2d(w->wq, l, dim, dim);
+    float * const w_k = mcr_3d_to_2d(w->wk, l, dim, kv_dim);
+    float * const w_v = mcr_3d_to_2d(w->wv, l, dim, kv_dim);
 
     // qkv matmuls for this position
-    matmul(s->q, s->xb, w_q, dim, dim);
-    matmul(s_k,  s->xb, w_k, dim, kv_dim);
-    matmul(s_v,  s->xb, w_v, dim, kv_dim);
+    matmul(s->q,    s->xb, w_q, dim, dim);
+    matmul(key_ptr, s->xb, w_k, dim, kv_dim);
+    matmul(val_ptr, s->xb, w_v, dim, kv_dim);
 
-    // RoPE relative positional encoding: complex-valued rotate q and k in each head
-    status = rope(dim, kv_dim, head_size, pos, s->q, s_k); cBYE(status);
+    // RoPE relative positional encoding: 
+    // complex-valued rotate q and k in each head
+    status = rope(dim, kv_dim, head_size, pos, s->q, key_ptr); cBYE(status);
 
     // multihead attention. iterate over all heads in parallel
 #pragma omp parallel for 
     for ( int h = 0; h < p->n_heads; h++) {
       // get the query vector for this head
-      float* q_h = mcr_2d_to_1d(s->q, h, head_size); 
+      const float* const q_h = mcr_2d_to_1d(s->q, h, head_size); 
       // attention scores for this head
       float* att_h = mcr_2d_to_1d(s->att, h, p->seq_len);
       // iterate over all timesteps, including the current one
@@ -192,7 +192,7 @@ forward(
       softmax(att_h, pos + 1);
 
       // weighted sum of the values, store back into xb
-      float* xb = s->xb + h * head_size;
+      float* const xb = s->xb + h * head_size;
       memset(xb, 0, head_size * sizeof(float));
       for (int t = 0; t <= pos; t++) {
         // get the value vector for this head and at this timestep
@@ -200,9 +200,7 @@ forward(
         // get the attention weight for this timestep
         float a = att_h[t];
         // accumulate the weighted value into xb
-        for (int i = 0; i < head_size; i++) {
-          xb[i] += a * v[i];
-        }
+        mul_add_to(xb, a, v, head_size); // xb_i += a * v[i]
       }
     }
 
@@ -659,6 +657,7 @@ generate(
 
     // forward the transformer to get logits for the next token
     float* logits = forward(transformer, token, pos);
+    if ( logits == NULL ) { go_BYE(-1); }
 
     // advance the state machine
     if (pos < num_prompt_tokens - 1) {
@@ -712,88 +711,102 @@ void read_stdin(const char* guide, char* buffer, size_t bufsize) {
 // python reference and that seemed ok, but this was not thoroughly tested and
 // is not safely implemented, it's more a proof of concept atm.
 
-void chat(Transformer *transformer, Tokenizer *tokenizer, Sampler *sampler,
-          char *cli_user_prompt, char *cli_system_prompt, int steps) {
+int
+chat(
+    Transformer *transformer, 
+    Tokenizer *tokenizer, 
+    Sampler *sampler, 
+    char *cli_user_prompt, 
+    char *cli_system_prompt, 
+    int steps
+    ) 
+{
+  int status = 0;
 
-    // buffers for reading the system prompt and user prompt from stdin
-    // you'll notice they are soomewhat haphazardly and unsafely set atm
-    char system_prompt[512];
-    char user_prompt[512];
-    char rendered_prompt[1152];
-    int num_prompt_tokens = 0;
-    int* prompt_tokens = (int*)malloc(1152 * sizeof(int));
-    int user_idx;
+  // buffers for reading the system prompt and user prompt from stdin
+  // you'll notice they are somewhat haphazardly and unsafely set atm
+  char system_prompt[512];
+  char user_prompt[512];
+  char rendered_prompt[1152];
+  int num_prompt_tokens = 0;
+  int* prompt_tokens = NULL;
+  int user_idx;
 
-    // start the main loop
-    int8_t user_turn = 1; // user starts
-    int next;        // will store the next token in the sequence
-    int token;       // stores the current token to feed into the transformer
-    int prev_token;
-    int pos = 0;     // position in the sequence
-    while (pos < steps) {
+  prompt_tokens = malloc(1152 * sizeof(int)); // TODO P3 Why 1152?
+  return_if_malloc_failed(prompt_tokens); 
 
-        // when it is the user's turn to contribute tokens to the dialog...
-        if (user_turn) {
-            // get the (optional) system prompt at position 0
-            if (pos == 0) {
-                // at position 0, the user can also contribute a system prompt
-                if (cli_system_prompt == NULL) {
-                    // system prompt was not passed in, attempt to get it from stdin
-                    read_stdin("Enter system prompt (optional): ", system_prompt, sizeof(system_prompt));
-                } else {
-                    // system prompt was passed in, use it
-                    strcpy(system_prompt, cli_system_prompt);
-                }
-            }
-            // get the user prompt
-            if (pos == 0 && cli_user_prompt != NULL) {
-                // user prompt for position 0 was passed in, use it
-                strcpy(user_prompt, cli_user_prompt);
-            } else {
-                // otherwise get user prompt from stdin
-                read_stdin("User: ", user_prompt, sizeof(user_prompt));
-            }
-            // render user/system prompts into the Llama 2 Chat schema
-            if (pos == 0 && system_prompt[0] != '\0') {
-                char system_template[] = "[INST] <<SYS>>\n%s\n<</SYS>>\n\n%s [/INST]";
-                sprintf(rendered_prompt, system_template, system_prompt, user_prompt);
-            } else {
-                char user_template[] = "[INST] %s [/INST]";
-                sprintf(rendered_prompt, user_template, user_prompt);
-            }
-            // encode the rendered prompt into tokens
-            encode(tokenizer, rendered_prompt, 1, 0, prompt_tokens, &num_prompt_tokens);
-            user_idx = 0; // reset the user index
-            user_turn = 0;
-            printf("Assistant: ");
-        }
+  // start the main loop
+  int8_t user_turn = 1; // user starts
+  int next;        // will store the next token in the sequence
+  int token;       // stores the current token to feed into the transformer
+  int prev_token;
+  int pos = 0;     // position in the sequence
+  while (pos < steps) {
 
-        // determine the token to pass into the transformer next
-        if (user_idx < num_prompt_tokens) {
-            // if we are still processing the input prompt, force the next prompt token
-            token = prompt_tokens[user_idx++];
+    // when it is the user's turn to contribute tokens to the dialog...
+    if (user_turn) {
+      // get the (optional) system prompt at position 0
+      if (pos == 0) {
+        // at position 0, the user can also contribute a system prompt
+        if (cli_system_prompt == NULL) {
+          // system prompt was not passed in, attempt to get it from stdin
+          read_stdin("Enter system prompt (optional): ", system_prompt, sizeof(system_prompt));
         } else {
-            // otherwise use the next token sampled from previous turn
-            token = next;
+          // system prompt was passed in, use it
+          strcpy(system_prompt, cli_system_prompt);
         }
-        // EOS (=2) token ends the Assistant turn
-        if (token == 2) { user_turn = 1; }
-
-        // forward the transformer to get logits for the next token
-        float* logits = forward(transformer, token, pos);
-        next = sample(sampler, logits);
-        pos++;
-
-        if (user_idx >= num_prompt_tokens && next != 2) {
-            // the Assistant is responding, so print its output
-            char* piece = decode(tokenizer, token, next);
-            safe_printf(piece); // same as printf("%s", piece), but skips "unsafe" bytes
-            fflush(stdout);
-        }
-        if (next == 2) { printf("\n"); }
+      }
+      // get the user prompt
+      if (pos == 0 && cli_user_prompt != NULL) {
+        // user prompt for position 0 was passed in, use it
+        strcpy(user_prompt, cli_user_prompt);
+      } else {
+        // otherwise get user prompt from stdin
+        read_stdin("User: ", user_prompt, sizeof(user_prompt));
+      }
+      // render user/system prompts into the Llama 2 Chat schema
+      if (pos == 0 && system_prompt[0] != '\0') {
+        char system_template[] = "[INST] <<SYS>>\n%s\n<</SYS>>\n\n%s [/INST]";
+        sprintf(rendered_prompt, system_template, system_prompt, user_prompt);
+      } else {
+        char user_template[] = "[INST] %s [/INST]";
+        sprintf(rendered_prompt, user_template, user_prompt);
+      }
+      // encode the rendered prompt into tokens
+      encode(tokenizer, rendered_prompt, 1, 0, prompt_tokens, &num_prompt_tokens);
+      user_idx = 0; // reset the user index
+      user_turn = 0;
+      printf("Assistant: ");
     }
-    printf("\n");
-    free(prompt_tokens);
+
+    // determine the token to pass into the transformer next
+    if (user_idx < num_prompt_tokens) {
+      // if we are still processing the input prompt, force the next prompt token
+      token = prompt_tokens[user_idx++];
+    } else {
+      // otherwise use the next token sampled from previous turn
+      token = next;
+    }
+    // EOS (=2) token ends the Assistant turn
+    if (token == 2) { user_turn = 1; }
+
+    // forward the transformer to get logits for the next token
+    float* logits = forward(transformer, token, pos);
+    next = sample(sampler, logits);
+    pos++;
+
+    if (user_idx >= num_prompt_tokens && next != 2) {
+      // the Assistant is responding, so print its output
+      char* piece = decode(tokenizer, token, next);
+      safe_printf(piece); // same as printf("%s", piece), but skips "unsafe" bytes
+      fflush(stdout);
+    }
+    if (next == 2) { printf("\n"); }
+  }
+  printf("\n");
+  free(prompt_tokens);
+BYE:
+  return status;
 }
 
 
@@ -876,15 +889,17 @@ int main(
 
   // run!
   if (strcmp(mode, "generate") == 0) {
-    generate(&transformer, &tokenizer, &sampler, prompt, steps);
+    status = generate(&transformer, &tokenizer, &sampler, prompt, steps);
   } 
   else if (strcmp(mode, "chat") == 0) {
-    chat(&transformer, &tokenizer, &sampler, prompt, system_prompt, steps);
+    status = chat(&transformer, &tokenizer, &sampler, prompt, 
+        system_prompt, steps);
   } 
   else {
     fprintf(stderr, "unknown mode: %s\n", mode);
     error_usage();
   }
+  cBYE(status);
 
   // memory and file handles cleanup
   free_sampler(&sampler);

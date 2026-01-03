@@ -5,9 +5,9 @@ CC = gcc
 # the most basic way of building that is most likely to work on most systems
 all : run runq run_ispc cli_split_weights
 
-CFLAGS := -g -O0
-# CFLAGS := -O3
-CFLAGS += -DDEBUG
+# CFLAGS := -g -O0
+CFLAGS := -O3
+# CFLAGS += -DDEBUG
 CFLAGS += -flto # for Link Time Optimization 
 # CFLAGS += -msse4.1 # TODO 
 
@@ -21,6 +21,7 @@ ISPC_SRCS += ./ispc/rmsnorm.ispc
 ISPC_SRCS += ./ispc/softmax.ispc 
 ISPC_SRCS += ./ispc/dot_prod.ispc 
 ISPC_SRCS += ./ispc/add_to.ispc 
+ISPC_SRCS += ./ispc/mul_add_to.ispc 
 ISPC_SRCS += ./ispc/swiglu.ispc 
 
 SRCS += rmsnorm.c 
@@ -32,11 +33,15 @@ SRCS += run_state.c
 SRCS += rope.c 
 SRCS += dot_prod.c 
 SRCS += add_to.c 
+SRCS += mul_add_to.c 
 SRCS += swiglu.c 
 
 OBJS  = $(SRCS:.c=.o)
 
 ISPC_OBJS  = $(ISPC_SRCS:.ispc=.o)
+
+ispc/mul_add_to.o : 
+	  ispc ${INCS} ispc/mul_add_to.ispc -o ispc/mul_add_to.o 
 
 ispc/add_to.o : 
 	  ispc ${INCS} ispc/add_to.ispc -o ispc/add_to.o 
