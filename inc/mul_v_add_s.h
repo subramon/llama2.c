@@ -1,5 +1,5 @@
 extern void 
-mul_add_to(
+mul_v_add_s(
     float * restrict x, 
     float scalar,
     const float * const y, 

@@ -1,7 +1,7 @@
-#include "add_to.h"
-// x <= x + y
+#include "mul_v_add_s.h"
+// vec1 += vec2 * scalar 
 void 
-mul_add_to(
+mul_v_add_s(
     float * restrict x, 
     float scalar,
     const float * const y, 

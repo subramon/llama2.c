@@ -1,6 +1,6 @@
-// x_i <= x_i + scalar * y_i
+// x_i += scalar * y_i
 export void 
-mul_add_to(
+mul_v_add_s(
     uniform float x[], 
     uniform float scalar,
     uniform float y[], 

@@ -1,5 +1,5 @@
 extern void 
-add_to(
+add_v(
     float * restrict x, 
     const float * const y, 
     int n

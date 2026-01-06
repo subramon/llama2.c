@@ -1,12 +1,12 @@
 export void 
-add_to(
+div_s(
     uniform float x[] ,
-    uniform float y[], 
+    uniform float scalar,
     uniform int n
     ) 
 {
   assume(n % programCount == 0);
   foreach ( i = 0 ... n ) {
-    x[i] += y[i];
+    x[i] /= scalar;
   }
 }

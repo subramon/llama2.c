@@ -20,9 +20,12 @@ INCS += -I${RSUTILS_SRC_ROOT}/inc/
 ISPC_SRCS += ./ispc/rmsnorm.ispc 
 ISPC_SRCS += ./ispc/softmax.ispc 
 ISPC_SRCS += ./ispc/dot_prod.ispc 
-ISPC_SRCS += ./ispc/add_to.ispc 
-ISPC_SRCS += ./ispc/mul_add_to.ispc 
+ISPC_SRCS += ./ispc/add_v.ispc 
+ISPC_SRCS += ./ispc/div_s.ispc 
+ISPC_SRCS += ./ispc/mul_v_add_s.ispc 
 ISPC_SRCS += ./ispc/swiglu.ispc 
+# TODO  ISPC_SRCS += ./ispc/argmax.ispc 
+# TODO  ISPC_SRCS += ./ispc/prob_select.ispc 
 
 SRCS += rmsnorm.c 
 SRCS += matmul.c 
@@ -32,19 +35,25 @@ SRCS += mmap_weights.c
 SRCS += run_state.c 
 SRCS += rope.c 
 SRCS += dot_prod.c 
-SRCS += add_to.c 
-SRCS += mul_add_to.c 
+SRCS += add_v.c 
+SRCS += prob_select.c 
+SRCS += div_s.c 
+SRCS += mul_v_add_s.c 
 SRCS += swiglu.c 
+SRCS += argmax.c 
 
 OBJS  = $(SRCS:.c=.o)
 
 ISPC_OBJS  = $(ISPC_SRCS:.ispc=.o)
 
-ispc/mul_add_to.o : 
-	  ispc ${INCS} ispc/mul_add_to.ispc -o ispc/mul_add_to.o 
+ispc/mul_v_add_s.o : 
+	  ispc ${INCS} ispc/mul_v_add_s.ispc -o ispc/mul_v_add_s.o 
 
-ispc/add_to.o : 
-	  ispc ${INCS} ispc/add_to.ispc -o ispc/add_to.o 
+ispc/div_s.o : 
+	  ispc ${INCS} ispc/div_s.ispc -o ispc/div_s.o 
+
+ispc/add_v.o : 
+	  ispc ${INCS} ispc/add_v.ispc -o ispc/add_v.o 
 
 ispc/dot_prod.o : 
 	ispc ${INCS} ispc/dot_prod.ispc -o ispc/dot_prod.o 
@@ -63,14 +72,20 @@ run: run.o  ${OBJS}
 	${RSUTILS_SRC_ROOT}/src/librsutils.so \
 	-lm -lgomp
 
+#TODO Delete argmax below 
+#TODO Delete prob_select below 
 run_ispc: run.o  ${ISPC_OBJS} matmul_ispc_wrap.o \
 	mmap_weights.o \
 	rope.o \
+	argmax.o \
+	prob_select.o \
 	run_state.o 
 	$(CC) -o run_ispc run.o ${ISPC_OBJS} \
 	matmul_ispc_wrap.o \
 	mmap_weights.o \
 	rope.o \
+	argmax.o \
+	prob_select.o \
 	run_state.o  \
 	${RSUTILS_SRC_ROOT}/src/librsutils.so \
 	-lm -lgomp
