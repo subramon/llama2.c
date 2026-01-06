@@ -77,3 +77,26 @@ mmap_weights(
 BYE:
   return status;
 }
+
+int
+munmap_weights(
+    TransformerWeights * restrict ptr_w
+    )
+{
+  int status = 0;
+
+  mcr_rs_munmap(ptr_w->token_embedding_table, ptr_w->sz_tet);
+  mcr_rs_munmap(ptr_w->rms_att_weight, ptr_w->sz_rms_att);
+  mcr_rs_munmap(ptr_w->wq, ptr_w->sz_wq);
+  mcr_rs_munmap(ptr_w->wk, ptr_w->sz_wk);
+  mcr_rs_munmap(ptr_w->wv, ptr_w->sz_wv);
+  mcr_rs_munmap(ptr_w->wo, ptr_w->sz_wo);
+  mcr_rs_munmap(ptr_w->rms_ffn_weight, ptr_w->sz_rms_ffn);
+  mcr_rs_munmap(ptr_w->w1, ptr_w->sz_w1);
+  mcr_rs_munmap(ptr_w->w2, ptr_w->sz_w2);
+  mcr_rs_munmap(ptr_w->w3, ptr_w->sz_w3);
+  mcr_rs_munmap(ptr_w->rms_final_weight, ptr_w->sz_rms_final);
+  mcr_rs_munmap(ptr_w->wcls, ptr_w->sz_wcls);
+
+  return status;
+}

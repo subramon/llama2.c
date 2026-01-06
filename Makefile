@@ -56,6 +56,7 @@ SRCS += div_s.c
 SRCS += mul_v_add_s.c 
 SRCS += swiglu.c 
 SRCS += argmax.c 
+SRCS += read_config.c 
 
 OBJS  = $(SRCS:.c=.o)
 
@@ -92,6 +93,7 @@ run: run.o  ${OBJS}
 run_ispc: run.o  ${ISPC_OBJS} matmul_ispc_wrap.o \
 	mmap_weights.o \
 	rope.o \
+	read_config.o \
 	argmax.o \
 	prob_select.o \
 	run_state.o 
@@ -99,6 +101,7 @@ run_ispc: run.o  ${ISPC_OBJS} matmul_ispc_wrap.o \
 	matmul_ispc_wrap.o \
 	mmap_weights.o \
 	rope.o \
+	read_config.o \
 	argmax.o \
 	prob_select.o \
 	run_state.o  \

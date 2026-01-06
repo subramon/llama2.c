@@ -4,3 +4,7 @@ mmap_weights(
     const Config * const ptr_C,
     TransformerWeights * restrict ptr_w
     );
+extern int
+munmap_weights(
+    TransformerWeights * restrict ptr_w
+    );

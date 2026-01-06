@@ -3,6 +3,7 @@
 #include "rs_mmap.h"
 #include "consts.h"
 #include "rs_mmap.h"
+#include "isfile.h"
 #include "weights_file_layout.h"
 #include "read_config.h"
 
@@ -14,6 +15,8 @@ read_config(
 {
   int status = 0;
   char *X = NULL; size_t nX = 0; 
+  if ( infile == NULL ) { go_BYE(-1); } 
+  if ( !isfile(infile) ) { go_BYE(-1); } 
   status = rs_mmap(infile, &X, &nX, 0); cBYE(status);
   memcpy(ptr_C, X, sizeof(Config));
   //-------------------------------

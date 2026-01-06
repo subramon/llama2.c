@@ -20,6 +20,7 @@
 #include "macros.h"
 #include "matmul.h"
 #include "rmsnorm.h"
+#include "read_config.h"
 #include "softmax.h"
 #include "mmap_weights.h"
 #include "run_state.h"
@@ -43,59 +44,28 @@ typedef struct {
     Config config; // the hyperparameters of the architecture (the blueprint)
     TransformerWeights weights; // the weights of the model
     RunState state; // buffers for the "wave" of activations in the forward pass
-    // some more state needed to properly clean up the memory mapping (sigh)
-    int fd; // file descriptor for memory mapping
-    float* data; // memory mapped data pointer
-    ssize_t file_size; // size of the checkpoint file in bytes
 } Transformer;
 
-int
+static int
 read_checkpoint(
-    char* checkpoint, 
-    Config* config, 
-    TransformerWeights* weights, 
-    int *ptr_fd, 
-    float **ptr_data, 
-    ssize_t *ptr_file_size
+    const char * const checkpoint,  // file containing checkpoint 
+    Config* ptr_config, 
+    TransformerWeights* ptr_weights
     ) 
 {
   int status = 0; 
-  int fd = -1;
-  float *data = NULL; 
-  ssize_t file_size = 0;
 
-  FILE *file = NULL;
-  file = fopen(checkpoint, "rb");
-  if (!file) { 
-    fprintf(stderr, "Couldn't open file %s\n", checkpoint); go_BYE(-1);
-  }
-  // read in the config header
-  if (fread(config, sizeof(Config), 1, file) != 1) { go_BYE(-1); }
-  // negative vocab size is hacky way of signaling unshared weights. bit yikes.
-  int shared_weights = config->vocab_size > 0 ? 1 : 0;
-  config->vocab_size = abs(config->vocab_size);
-  // figure out the file size
-  fseek(file, 0, SEEK_END); // move file pointer to end of file
-  file_size = ftell(file); // get the file size, in bytes
-  fclose(file);
-  // memory map the Transformer weights into the data pointer
-  fd = open(checkpoint, O_RDONLY); // open in read only mode
-  if ( fd == -1 ) { go_BYE(-1); } 
-
-  data = mmap(NULL, file_size, PROT_READ, MAP_PRIVATE, fd, 0);
-  if ( data == MAP_FAILED) { go_BYE(-1); }
-
-  float* weights_ptr = data + (sizeof(Config)/sizeof(float));
-  status = mmap_weights(config, weights); cBYE(status);
-
-  *ptr_fd = fd;
-  *ptr_data = data;
-  *ptr_file_size = file_size;
+  status = read_config(checkpoint, ptr_config); cBYE(status);
+  // negative vocab size is hacky way of signaling unshared weights. 
+  // bit yikes. TODO P3 
+  int shared_weights = ptr_config->vocab_size > 0 ? 1 : 0;
+  ptr_config->vocab_size = abs(ptr_config->vocab_size);
+  status = mmap_weights(ptr_config, ptr_weights); cBYE(status);
 BYE:
   return status;
 }
 
-int
+static int
 build_transformer(
     Transformer *t, 
     char* checkpoint_path
@@ -103,8 +73,7 @@ build_transformer(
 {
   int status = 0;
   // read in the Config and the Weights from the checkpoint
-  status = read_checkpoint(checkpoint_path, &t->config, 
-      &t->weights, &t->fd, &t->data, &t->file_size);
+  status = read_checkpoint(checkpoint_path, &t->config, &t->weights);
   cBYE(status);
   // allocate the RunState buffers
   status = malloc_run_state(&t->state, &t->config); cBYE(status);
@@ -112,12 +81,16 @@ BYE:
   return status;
 }
 
-void free_transformer(Transformer* t) {
-    // close the memory mapping
-    if (t->data != MAP_FAILED) { munmap(t->data, t->file_size); }
-    if (t->fd != -1) { close(t->fd); }
-    // free the RunState buffers
-    free_run_state(&t->state);
+static void 
+free_transformer(
+    Transformer* t
+    ) 
+{
+  // close the memory mapping
+  // TODO 
+  // free the RunState buffers
+  free_run_state(&t->state);
+  munmap_weights(&t->weights);
 }
 
 // ----------------------------------------------------------------------------
@@ -125,7 +98,7 @@ void free_transformer(Transformer* t) {
 
 
 // This function updates w->state->logits
-int
+static int
 forward(
     Transformer* transformer, 
     int token, 
@@ -151,7 +124,7 @@ forward(
 #endif
   // copy the token embedding into x
   float* tet_ptr = mcr_2d_to_1d(w->token_embedding_table, token, dim);
-  memcpy(x, tet_ptr, dim*sizeof(float));
+  memcpy(x, tet_ptr, ((size_t)dim*sizeof(float)));
 
   // forward all the layers
   for( int l = 0; l < p->n_layers; l++) {
@@ -177,7 +150,7 @@ forward(
 
     // multihead attention. iterate over all heads in parallel
     int nP = omp_get_num_procs(); int nP_outer = 1, nP_inner = 1;
-    if ( pos >= FLOATS_IN_CACHE_LINE * nP ) { 
+    if ( pos >= (int)((int)FLOATS_IN_CACHE_LINE * nP) ) { 
       nP_inner = nP; nP_outer = 1; 
     }
     else {
@@ -203,7 +176,7 @@ forward(
         // calculate the attention score as the dot product of q and k
         float score;
         dot_prod(q_h, new_k, head_size, &score); 
-        score /= sqrtf(head_size);
+        score /= sqrtf((float)head_size);
         // save the score to the attention buffer
         att_h[t] = score;
       }
@@ -213,7 +186,7 @@ forward(
 
       // weighted sum of the values, store back into xb
       float* const xb = s->xb + h * head_size;
-      memset(xb, 0, head_size * sizeof(float));
+      memset(xb, 0, ((size_t)(head_size * sizeof(float))));
 #pragma omp parallel for num_threads(nP_inner)
       for (int t = 0; t <= pos; t++) {
         // get the value vector for this head and at this timestep
@@ -287,41 +260,56 @@ typedef struct {
     unsigned char byte_pieces[512]; // stores all single-byte strings
 } Tokenizer;
 
-int compare_tokens(const void *a, const void *b) {
-    return strcmp(((TokenIndex*)a)->str, ((TokenIndex*)b)->str);
+static int 
+compare_tokens(
+    const void *a, 
+    const void *b
+    ) 
+{
+  return strcmp(((TokenIndex*)a)->str, ((TokenIndex*)b)->str);
 }
 
-void build_tokenizer(Tokenizer* t, char* tokenizer_path, int vocab_size) {
-    // i should have written the vocab_size into the tokenizer file... sigh
-    t->vocab_size = vocab_size;
-    // malloc space to hold the scores and the strings
-    t->vocab = (char**)malloc(vocab_size * sizeof(char*));
-    t->vocab_scores = (float*)malloc(vocab_size * sizeof(float));
-    t->sorted_vocab = NULL; // initialized lazily
-    for (int i = 0; i < 256; i++) {
-        t->byte_pieces[i * 2] = (unsigned char)i;
-        t->byte_pieces[i * 2 + 1] = '\0';
-    }
-    // read in the file
-    FILE *file = fopen(tokenizer_path, "rb");
-    if (!file) { fprintf(stderr, "couldn't load %s\n", tokenizer_path); exit(EXIT_FAILURE); }
-    if (fread(&t->max_token_length, sizeof(int), 1, file) != 1) { fprintf(stderr, "failed read\n"); exit(EXIT_FAILURE); }
-    int len;
-    for (int i = 0; i < vocab_size; i++) {
-        if (fread(t->vocab_scores + i, sizeof(float), 1, file) != 1) { fprintf(stderr, "failed read\n"); exit(EXIT_FAILURE);}
-        if (fread(&len, sizeof(int), 1, file) != 1) { fprintf(stderr, "failed read\n"); exit(EXIT_FAILURE); }
-        t->vocab[i] = (char *)malloc(len + 1);
-        if (fread(t->vocab[i], len, 1, file) != 1) { fprintf(stderr, "failed read\n"); exit(EXIT_FAILURE); }
-        t->vocab[i][len] = '\0'; // add the string terminating token
-    }
-    fclose(file);
+static void 
+build_tokenizer(
+    Tokenizer* t, 
+    const char* const tokenizer_path, 
+    int vocab_size
+    ) 
+{
+  // i should have written the vocab_size into the tokenizer file... sigh
+  t->vocab_size = vocab_size;
+  // malloc space to hold the scores and the strings
+  t->vocab = (char**)malloc(vocab_size * sizeof(char*));
+  t->vocab_scores = (float*)malloc(vocab_size * sizeof(float));
+  t->sorted_vocab = NULL; // initialized lazily
+  for (int i = 0; i < 256; i++) {
+    t->byte_pieces[i * 2] = (unsigned char)i;
+    t->byte_pieces[i * 2 + 1] = '\0';
+  }
+  // read in the file
+  FILE *file = fopen(tokenizer_path, "rb");
+  if (!file) { fprintf(stderr, "couldn't load %s\n", tokenizer_path); exit(EXIT_FAILURE); }
+  if (fread(&t->max_token_length, sizeof(int), 1, file) != 1) { fprintf(stderr, "failed read\n"); exit(EXIT_FAILURE); }
+  int len;
+  for (int i = 0; i < vocab_size; i++) {
+    if (fread(t->vocab_scores + i, sizeof(float), 1, file) != 1) { fprintf(stderr, "failed read\n"); exit(EXIT_FAILURE);}
+    if (fread(&len, sizeof(int), 1, file) != 1) { fprintf(stderr, "failed read\n"); exit(EXIT_FAILURE); }
+    t->vocab[i] = (char *)malloc(len + 1);
+    if (fread(t->vocab[i], len, 1, file) != 1) { fprintf(stderr, "failed read\n"); exit(EXIT_FAILURE); }
+    t->vocab[i][len] = '\0'; // add the string terminating token
+  }
+  fclose(file);
 }
 
-void free_tokenizer(Tokenizer* t) {
-    for (int i = 0; i < t->vocab_size; i++) { free(t->vocab[i]); }
-    free(t->vocab);
-    free(t->vocab_scores);
-    free(t->sorted_vocab);
+static void 
+free_tokenizer(
+    Tokenizer* t
+    ) 
+{
+  for (int i = 0; i < t->vocab_size; i++) { free(t->vocab[i]); }
+  free(t->vocab);
+  free(t->vocab_scores);
+  free(t->sorted_vocab);
 }
 
 char* 
@@ -333,7 +321,7 @@ decode(
 {
   char *piece = t->vocab[token];
   // following BOS (1) token, sentencepiece decoder strips any leading whitespace (see PR #89)
-  if (prev_token == 1 && piece[0] == ' ') { piece++; }
+  if ( ( prev_token == 1 ) && ( piece[0] == ' ' ) ) { piece++; }
   // careful, some tokens designate raw bytes, and look like e.g. '<0x01>'
   // parse this and convert and return the actual byte
   unsigned char byte_val;
@@ -571,13 +559,21 @@ int sample_topp(float* probabilities, int n, float topp, ProbIndex* probindex, f
     return probindex[last_idx].index; // in case of rounding errors
 }
 
-void build_sampler(Sampler* sampler, int vocab_size, float temperature, float topp, unsigned long long rng_seed) {
-    sampler->vocab_size = vocab_size;
-    sampler->temperature = temperature;
-    sampler->topp = topp;
-    sampler->rng_state = rng_seed;
-    // buffer only used with nucleus sampling; may not need but it's ~small
-    sampler->probindex = malloc(sampler->vocab_size * sizeof(ProbIndex));
+void 
+build_sampler(
+    Sampler* sampler, 
+    int vocab_size, 
+    float temperature, 
+    float topp, 
+    unsigned long long rng_seed
+    ) 
+{
+  sampler->vocab_size = vocab_size;
+  sampler->temperature = temperature;
+  sampler->topp = topp;
+  sampler->rng_state = rng_seed;
+  // buffer only used with nucleus sampling; may not need but it's ~small
+  sampler->probindex = malloc(sampler->vocab_size * sizeof(ProbIndex));
 }
 
 void free_sampler(Sampler* sampler) {
@@ -630,17 +626,21 @@ sample(
 // ----------------------------------------------------------------------------
 // utilities: time
 
-long time_in_ms() {
-    // return time in milliseconds, for benchmarking the model speed
-    struct timespec time;
-    clock_gettime(CLOCK_REALTIME, &time);
-    return time.tv_sec * 1000 + time.tv_nsec / 1000000;
+static long 
+time_in_ms(
+    void
+    ) 
+{
+  // return time in milliseconds, for benchmarking the model speed
+  struct timespec time;
+  clock_gettime(CLOCK_REALTIME, &time);
+  return time.tv_sec * 1000 + time.tv_nsec / 1000000;
 }
 
 // ----------------------------------------------------------------------------
 // generation loop
 
-int
+static int
 generate(
     Transformer *transformer, 
     Tokenizer *tokenizer, 
@@ -651,7 +651,7 @@ generate(
 {
   int status = 0;
   int* prompt_tokens = NULL; int num_prompt_tokens = 0;
-  char *empty_prompt = "";
+  const char *empty_prompt = "";
   if ( prompt == NULL) { prompt = empty_prompt; }
 
   // encode the (string) prompt into tokens sequence
@@ -709,15 +709,21 @@ BYE:
   return status;
 }
 
-void read_stdin(const char* guide, char* buffer, size_t bufsize) {
-    // read a line from stdin, up to but not including \n
-    printf("%s", guide);
-    if (fgets(buffer, bufsize, stdin) != NULL) {
-        size_t len = strlen(buffer);
-        if (len > 0 && buffer[len - 1] == '\n') {
-            buffer[len - 1] = '\0'; // strip newline
-        }
+void 
+read_stdin(
+    const char* guide, 
+    char* buffer, 
+    size_t bufsize
+    ) 
+{
+  // read a line from stdin, up to but not including \n
+  printf("%s", guide);
+  if (fgets(buffer, bufsize, stdin) != NULL) {
+    size_t len = strlen(buffer);
+    if (len > 0 && buffer[len - 1] == '\n') {
+      buffer[len - 1] = '\0'; // strip newline
     }
+  }
 }
 
 // ----------------------------------------------------------------------------
@@ -726,7 +732,7 @@ void read_stdin(const char* guide, char* buffer, size_t bufsize) {
 // python reference and that seemed ok, but this was not thoroughly tested and
 // is not safely implemented, it's more a proof of concept atm.
 
-int
+static int
 chat(
     Transformer *transformer, 
     Tokenizer *tokenizer, 
@@ -829,7 +835,11 @@ BYE:
 // CLI, include only if not testing
 #ifndef TESTING
 
-void error_usage() 
+static void 
+error_usage(
+    void
+    )
+
 {
   fprintf(stderr, "Usage:   run <checkpoint> [options]\n");
   fprintf(stderr, "Example: run model.bin -n 256 -i \"Once upon a time\"\n");
@@ -853,13 +863,13 @@ int main(
   int status = 0;
   // default parameters
   char *checkpoint_path = NULL;  // e.g. out/model.bin
-  char *tokenizer_path = "tokenizer.bin";
+  const char *tokenizer_path = "tokenizer.bin";
   float temperature = 1.0f;   // 0.0 = greedy deterministic. 1.0 = original. don't set higher
   float topp = 0.9f;          // top-p in nucleus sampling. 1.0 = off. 0.9 works well, but slower
   int steps = 256;            // number of steps to run for
   char *prompt = NULL;        // prompt string
   unsigned long long rng_seed = 0; // seed rng with time by default
-  char *mode = "generate";    // generate|chat
+  const char *mode = "generate";    // generate|chat
   char *system_prompt = NULL; // the (optional) system prompt to use in chat mode
 
   // poor man's C argparse so we can override the defaults above from the command line
@@ -870,9 +880,9 @@ int main(
     if (argv[i][0] != '-') { error_usage(); } // must start with dash
     if (strlen(argv[i]) != 2) { error_usage(); } // must be -x (one dash, one letter)
     // read in the args
-    if (argv[i][1] == 't') { temperature = atof(argv[i + 1]); }
-    else if (argv[i][1] == 'p') { topp = atof(argv[i + 1]); }
-    else if (argv[i][1] == 's') { rng_seed = atoi(argv[i + 1]); }
+    if (argv[i][1] == 't') { temperature = (float)atof(argv[i + 1]); }
+    else if (argv[i][1] == 'p') { topp = (float)atof(argv[i + 1]); }
+    else if (argv[i][1] == 's') { rng_seed = (unsigned long long)atoi(argv[i + 1]); }
     else if (argv[i][1] == 'n') { steps = atoi(argv[i + 1]); }
     else if (argv[i][1] == 'i') { prompt = argv[i + 1]; }
     else if (argv[i][1] == 'z') { tokenizer_path = argv[i + 1]; }
@@ -883,8 +893,8 @@ int main(
 
   // parameter validation/overrides
   if (rng_seed <= 0) rng_seed = (unsigned int)time(NULL);
-  if (temperature < 0.0) temperature = 0.0;
-  if (topp < 0.0 || 1.0 < topp) topp = 0.9;
+  if (temperature < 0.0) temperature = 0.0f;
+  if (topp < 0.0 || 1.0 < topp) topp = 0.9f;
   if (steps < 0) steps = 0;
 
   // build the Transformer via the model .bin file

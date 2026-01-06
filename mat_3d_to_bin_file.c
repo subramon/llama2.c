@@ -35,11 +35,6 @@ mat_3d_to_bin_file(
     }
   }
   fclose_if_non_null(fp); 
-#ifdef DEBUG
-  char *Z = NULL; size_t nZ = 0;
-  status = rs_mmap(file_name, &Z, &nZ, 0); cBYE(status);
-  mcr_rs_munmap(Z, nZ);
-#endif
   *ptr_X = X;
   *ptr_nX = nX;
 BYE:
