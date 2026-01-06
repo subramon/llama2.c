@@ -194,11 +194,11 @@ forward(
       for (int t = 0; t <= pos; t++) {
         // get the key vector for this head and at this timestep
         float *new_k = mcr_3d_to_1d(s->kc, l, t, p->seq_len, ispc_kv_dim);
+        new_k += (h / kv_mul) * head_size;
 #ifdef DEBUG
         int loff = l * p->seq_len * kv_dim; // kv cache layer offset for convenience
         float *old_k = s->kc + loff + t * kv_dim + (h / kv_mul) * head_size;
-        new_k += (h / kv_mul) * head_size;
-        if ( old_k != new_k ) { go_BYE(-1); }
+        if ( old_k != new_k ) { status = -1; continue; }
 #endif
         // calculate the attention score as the dot product of q and k
         float score;
@@ -217,12 +217,12 @@ forward(
 #pragma omp parallel for num_threads(nP_inner)
       for (int t = 0; t <= pos; t++) {
         // get the value vector for this head and at this timestep
-        int loff = l * p->seq_len * kv_dim; // kv cache layer offset for convenience
         float *new_v = mcr_3d_to_1d(s->vc, l, t, p->seq_len, ispc_kv_dim);
-#ifdef DEBUG
-        float *old_v = s->vc + loff + t * kv_dim + (h / kv_mul) * head_size;
         new_v += (h / kv_mul) * head_size;
-        if ( old_v != new_v ) { go_BYE(-1); }
+#ifdef DEBUG
+        int loff = l * p->seq_len * kv_dim; // kv cache layer offset for convenience
+        float *old_v = s->vc + loff + t * kv_dim + (h / kv_mul) * head_size;
+        if ( old_v != new_v ) { WHEREAMI; status = -1; continue; }
 #endif
         // get the attention weight for this timestep
         float a = att_h[t];
@@ -230,6 +230,7 @@ forward(
         mul_v_add_s(xb, a, new_v, head_size); // xb_i += a * v[i]
       }
     }
+    cBYE(status);
 
     // final matmul to get the output of the attention
     float *wo_ptr = mcr_3d_to_2d(w->wo, l, dim, dim);
@@ -705,6 +706,7 @@ generate(
 
 BYE:
   free_if_non_null(prompt_tokens);
+  return status;
 }
 
 void read_stdin(const char* guide, char* buffer, size_t bufsize) {
@@ -804,7 +806,7 @@ chat(
     if (token == 2) { user_turn = 1; }
 
     // forward the transformer to get logits for the next token
-    forward(transformer, token, pos);
+    status = forward(transformer, token, pos); cBYE(status);
     next = sample(sampler, transformer->state.logits);
     pos++;
 

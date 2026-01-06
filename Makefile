@@ -7,9 +7,24 @@ all : run runq run_ispc cli_split_weights
 
 CFLAGS := -g -O0
 # CFLAGS := -O3
-CFLAGS += -DDEBUG
+# CFLAGS += -DDEBUG
 CFLAGS += -flto # for Link Time Optimization 
 # CFLAGS += -msse4.1 # TODO 
+CFLAGS += -fopenmp
+CFLAGS += -fstrict-aliasing 
+CFLAGS += -std=gnu99 -Wall -fPIC -W -Waggregate-return -Wcast-align 
+CFLAGS += -Wstrict-aliasing
+CFLAGS += -Wmissing-prototypes -Wnested-externs -Wshadow -Wwrite-strings 
+CFLAGS += -Wunused-variable -Wunused-parameter 
+CFLAGS += -Wstrict-prototypes -Wmissing-prototypes -Wpointer-arith 
+CFLAGS += -Wmissing-declarations -Wredundant-decls -Wnested-externs 
+CFLAGS += -Wshadow -Wcast-qual -Wcast-align -Wwrite-strings 
+CFLAGS += -Wold-style-definition 
+CFLAGS += -Wattributes
+CFLAGS += -Wunused-label 
+CFLAGS += -Wconversion
+CFLAGS += -Wpedantic  # ??? conflicts with stdatomic.h
+CFLAGS += -Wuninitialized
 
 INCS := -I./inc/
 INCS += -I${RSUTILS_SRC_ROOT}/inc/
