@@ -5,8 +5,8 @@ CC = gcc
 # the most basic way of building that is most likely to work on most systems
 all : run runq run_ispc cli_split_weights
 
-CFLAGS := -g -O0
-# CFLAGS := -O3
+# CFLAGS := -g -O0
+CFLAGS := -O3
 # CFLAGS += -DDEBUG
 CFLAGS += -flto # for Link Time Optimization 
 # CFLAGS += -msse4.1 # TODO 
@@ -62,26 +62,29 @@ OBJS  = $(SRCS:.c=.o)
 
 ISPC_OBJS  = $(ISPC_SRCS:.ispc=.o)
 
+ISPC_FLAGS := --addressing=32
+# ISPC_FLAGS += --opt=fast-math 
+
 ispc/mul_v_add_s.o : 
-	  ispc ${INCS} ispc/mul_v_add_s.ispc -o ispc/mul_v_add_s.o 
+	  ispc ${INCS} ${ISPC_FLAGS} ispc/mul_v_add_s.ispc -o ispc/mul_v_add_s.o 
 
 ispc/div_s.o : 
-	  ispc ${INCS} ispc/div_s.ispc -o ispc/div_s.o 
+	  ispc ${INCS} ${ISPC_FLAGS} ispc/div_s.ispc -o ispc/div_s.o 
 
 ispc/add_v.o : 
-	  ispc ${INCS} ispc/add_v.ispc -o ispc/add_v.o 
+	  ispc ${INCS} ${ISPC_FLAGS} ispc/add_v.ispc -o ispc/add_v.o 
 
 ispc/dot_prod.o : 
-	ispc ${INCS} ispc/dot_prod.ispc -o ispc/dot_prod.o 
+	ispc ${INCS} ${ISPC_FLAGS} ispc/dot_prod.ispc -o ispc/dot_prod.o 
 
 ispc/rmsnorm.o : 
-	  ispc ${INCS} ispc/rmsnorm.ispc -o ispc/rmsnorm.o 
+	  ispc ${INCS} ${ISPC_FLAGS} ispc/rmsnorm.ispc -o ispc/rmsnorm.o 
 
 ispc/softmax.o : 
-	ispc ${INCS} ispc/softmax.ispc -o ispc/softmax.o 
+	ispc ${INCS} ${ISPC_FLAGS} ispc/softmax.ispc -o ispc/softmax.o 
 
 ispc/swiglu.o : 
-	  ispc ${INCS} ispc/swiglu.ispc -o ispc/swiglu.o 
+	  ispc ${INCS} ${ISPC_FLAGS} ispc/swiglu.ispc -o ispc/swiglu.o 
 
 run: run.o  ${OBJS}
 	$(CC) -o run run.o ${OBJS}  \

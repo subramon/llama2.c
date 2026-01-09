@@ -1,6 +1,4 @@
 /* Inference for Llama-2 Transformer model in pure C */
-
-#undef ISPC 
 #include <stdio.h>
 #include <omp.h>
 #include <stdlib.h>
@@ -10,12 +8,9 @@
 #include <math.h>
 #include <string.h>
 #include <fcntl.h>
-#if defined _WIN32
-    #include "win.h"
-#else
-    #include <unistd.h>
-    #include <sys/mman.h>
-#endif
+#include <unistd.h>
+#include <sys/mman.h>
+
 #include "consts.h"
 #include "macros.h"
 #include "matmul.h"
@@ -33,8 +28,7 @@
 #include "argmax.h"
 #include "prob_select.h"
 
-int ispc_dim; // need to figure out where to put this 
-// ----------------------------------------------------------------------------
+// -------------------------------------------------------------------
 // Transformer model
 #include "weights_file_layout.h"
 // State
@@ -86,14 +80,11 @@ free_transformer(
     Transformer* t
     ) 
 {
-  // close the memory mapping
-  // TODO 
-  // free the RunState buffers
   free_run_state(&t->state);
   munmap_weights(&t->weights);
 }
 
-// ----------------------------------------------------------------------------
+// ---------------------------------------------------------------------
 // neural net blocks; the dynamics of the Transformer
 
 
@@ -116,26 +107,31 @@ forward(
   int kv_mul = p->n_heads / p->n_kv_heads; // integer multiplier of the kv sharing in multiquery
   int hidden_dim =  p->hidden_dim;
   int head_size = dim / p->n_heads;
+  size_t ispc_dim = mcr_round_up(p->dim);
+  size_t ispc_hidden_dim = mcr_round_up(p->hidden_dim);
+  size_t ispc_vocab_size = mcr_round_up(p->vocab_size);
+  size_t ispc_seq_len = mcr_round_up(p->seq_len);
   size_t ispc_kv_dim = mcr_round_up(kv_dim);
+  size_t ispc_head_size = mcr_round_up(head_size);
 
 #ifdef DEBUG
   if ( ( pos < 0 ) || ( pos >= p->seq_len ) ) { go_BYE(-1); }
   if ( ( token < 0 ) || ( token >= p->vocab_size ) ) { go_BYE(-1); }
 #endif
   // copy the token embedding into x
-  float* tet_ptr = mcr_2d_to_1d(w->token_embedding_table, token, dim);
+  float* tet_ptr = mcr_2d_to_1d(w->token_embedding_table, token, ispc_dim);
   memcpy(x, tet_ptr, ((size_t)dim*sizeof(float)));
 
   // forward all the layers
   for( int l = 0; l < p->n_layers; l++) {
     // attention rmsnorm
-    float * const w_rms_att_l = mcr_2d_to_1d(w->rms_att_weight, l, dim);
+    float * const w_rms_att_l = mcr_2d_to_1d(w->rms_att_weight, l, ispc_dim);
     rmsnorm(s->xb, x, w_rms_att_l, dim);
 
     // key_ptr and val_ptr point to appropriate location in kv cache
     float *key_ptr = mcr_3d_to_1d(s->kc, l, pos, p->seq_len, ispc_kv_dim);
     float *val_ptr = mcr_3d_to_1d(s->vc, l, pos, p->seq_len, ispc_kv_dim);
-    float * const w_q = mcr_3d_to_2d(w->wq, l, dim, dim);
+    float * const w_q = mcr_3d_to_2d(w->wq, l, dim, ispc_dim);
     float * const w_k = mcr_3d_to_2d(w->wk, l, dim, ispc_kv_dim);
     float * const w_v = mcr_3d_to_2d(w->wv, l, dim, ispc_kv_dim);
 
@@ -159,23 +155,23 @@ forward(
 #pragma omp parallel for num_threads(nP_outer)
     for ( int h = 0; h < p->n_heads; h++) {
       // get the query vector for this head
-      const float* const q_h = mcr_2d_to_1d(s->q, h, head_size); 
+      const float* const q_h = mcr_2d_to_1d(s->q, h, ispc_head_size); 
       // attention scores for this head
-      float* att_h = mcr_2d_to_1d(s->att, h, p->seq_len);
+      float* att_h = mcr_2d_to_1d(s->att, h, ispc_seq_len);
       // iterate over all timesteps, including the current one
 #pragma omp parallel for num_threads(nP_inner)
       for (int t = 0; t <= pos; t++) {
         // get the key vector for this head and at this timestep
-        float *new_k = mcr_3d_to_1d(s->kc, l, t, p->seq_len, ispc_kv_dim);
-        new_k += (h / kv_mul) * head_size;
+        float *keyptr = mcr_3d_to_1d(s->kc, l, t, p->seq_len, ispc_kv_dim);
+        keyptr += (h / kv_mul) * head_size;
 #ifdef DEBUG
         int loff = l * p->seq_len * kv_dim; // kv cache layer offset for convenience
         float *old_k = s->kc + loff + t * kv_dim + (h / kv_mul) * head_size;
-        if ( old_k != new_k ) { status = -1; continue; }
+        if ( old_k != keyptr ) { status = -1; continue; }
 #endif
         // calculate the attention score as the dot product of q and k
         float score;
-        dot_prod(q_h, new_k, head_size, &score); 
+        dot_prod(q_h, keyptr, head_size, &score); 
         score /= sqrtf((float)head_size);
         // save the score to the attention buffer
         att_h[t] = score;
@@ -190,36 +186,36 @@ forward(
 #pragma omp parallel for num_threads(nP_inner)
       for (int t = 0; t <= pos; t++) {
         // get the value vector for this head and at this timestep
-        float *new_v = mcr_3d_to_1d(s->vc, l, t, p->seq_len, ispc_kv_dim);
-        new_v += (h / kv_mul) * head_size;
+        float *valptr = mcr_3d_to_1d(s->vc, l, t, p->seq_len, ispc_kv_dim);
+        valptr += (h / kv_mul) * head_size;
 #ifdef DEBUG
         int loff = l * p->seq_len * kv_dim; // kv cache layer offset for convenience
         float *old_v = s->vc + loff + t * kv_dim + (h / kv_mul) * head_size;
-        if ( old_v != new_v ) { WHEREAMI; status = -1; continue; }
+        if ( old_v != valptr ) { WHEREAMI; status = -1; continue; }
 #endif
         // get the attention weight for this timestep
         float a = att_h[t];
         // accumulate the weighted value into xb
-        mul_v_add_s(xb, a, new_v, head_size); // xb_i += a * v[i]
+        mul_v_add_s(xb, a, valptr, head_size); // xb[i] += a * v[i]
       }
     }
     cBYE(status);
 
     // final matmul to get the output of the attention
-    float *wo_ptr = mcr_3d_to_2d(w->wo, l, dim, dim);
+    float *wo_ptr = mcr_3d_to_2d(w->wo, l, dim, ispc_dim);
     matmul(s->xb2, s->xb, wo_ptr, dim, dim);
 
     // residual connection back into x
     add_v(x, s->xb2, dim); 
 
     // ffn rmsnorm
-    float *rms_ffn_l = mcr_2d_to_1d(w->rms_ffn_weight, l, dim);
+    float *rms_ffn_l = mcr_2d_to_1d(w->rms_ffn_weight, l, ispc_dim);
     rmsnorm(s->xb, x, rms_ffn_l, dim);
 
     // Now for FFN in PyTorch we have: self.w2(F.silu(self.w1(x)) * self.w3(x))
     // first calculate self.w1(x) and self.w3(x)
-    float *w1_ptr = mcr_3d_to_2d(w->w1, l, hidden_dim, dim);
-    float *w3_ptr = mcr_3d_to_2d(w->w3, l, hidden_dim, dim);
+    float *w1_ptr = mcr_3d_to_2d(w->w1, l, hidden_dim, ispc_dim);
+    float *w3_ptr = mcr_3d_to_2d(w->w3, l, hidden_dim, ispc_dim);
     matmul(s->hb,  s->xb, w1_ptr, dim, hidden_dim);
     matmul(s->hb2, s->xb, w3_ptr, dim, hidden_dim);
 
@@ -227,7 +223,7 @@ forward(
     swiglu(s->hb, s->hb2, hidden_dim);
 
     // final matmul to get the output of the ffn
-    float *w2_ptr = mcr_3d_to_2d(w->w2, l, dim, hidden_dim);
+    float *w2_ptr = mcr_3d_to_2d(w->w2, l, dim, ispc_hidden_dim);
     matmul(s->xb, s->hb, w2_ptr, hidden_dim, dim);
 
     // residual connection

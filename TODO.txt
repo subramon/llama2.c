@@ -1,0 +1,15 @@
+ISPC: 32-bit Addressing: Use –addressing=32 if your data fits, as it avoids expensive 64-bit vector address calculations.
+
+
+Most obviously, use 32-bit addressing wherever you can. Unfortunately, ISPC doesn’t allow to specify that on a per-function basis, so it’s “all 32” or “all 64” (this is because the addressing flag changes how pointers are represented internally, so you can’t mix and match different functions any more).
+
+Of course, the downside to 32-bit addressing is that you shouldn’t use it on anything that requires large, 64-bit offsets. On the upside, it is important to realize that in ISPC, (varying) pointers are usually realized as a 64-bit scalar base address with a 32-bit offset. So “32 bit addressing” doesn’t mean that it’ll only ever run in a 32-bit windows build, or that you can never allocate more than 4GB of memory – all it means is you can’t ever access into an array with 64-bit offsets. I.e., having 16 separate 1GB arrays each is “generally” no problem, but one single 16GB array is.
+
+In practice – e.g., in OSPRay – that usually means you compile in 32-bit mode, and make sure that the above restrictions are obeyed in your code. And of course, that wherever you do have to do 64-bit indexing you’ll solve it in another way – I’ll talk about that later.
+
+
+
+
+have ISPC generate a header file with a C-callable function defitinition of that (the “-h” flag in ISPC invocation”;
+
+ispc dot_prod.ispc --header-outfile=_x.h

@@ -108,6 +108,7 @@ main(
   // some testing
   float *fptr = mcr_3d_to_1d(W.wo, 0, 0, C.n_layers, C.n_heads * head_size);
   printf("%f \n", *fptr);
+  munmap_weights(&W);
 BYE:
   fclose_if_non_null(fp); 
   mcr_rs_munmap(bak_X, bak_nX);

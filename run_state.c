@@ -8,6 +8,8 @@
 #include "macros.h"
 #include "run_state.h"
 
+#define ALIGN 64 // TODO P1 Get this value from ISPC 
+
 int
 malloc_run_state(
     RunState* s, 
@@ -15,7 +17,7 @@ malloc_run_state(
     ) 
 {
   int status = 0;
-  // we calloc instead of malloc to keep valgrind happy
+  size_t sz;
   int kv_dim = (p->dim * p->n_kv_heads) / p->n_heads;
   int head_size = p->dim / p->n_heads;
   // STOP : Get dimensions of various vectors we will allocate now 
@@ -25,18 +27,48 @@ malloc_run_state(
   size_t ispc_vocab_size = mcr_round_up(p->vocab_size);
   size_t ispc_seq_len = mcr_round_up(p->seq_len);
   size_t ispc_kv_dim = mcr_round_up(kv_dim);
+  size_t ispc_head_size = mcr_round_up(head_size);
   // STOP: over-allocate to get stuff to align for ISPC
 
-  s->x   = calloc(ispc_dim, sizeof(float));
-  s->xb  = calloc(ispc_dim, sizeof(float));
-  s->xb2 = calloc(ispc_dim, sizeof(float));
-  s->hb  = calloc(ispc_hidden_dim, sizeof(float));
-  s->hb2 = calloc(ispc_hidden_dim, sizeof(float));
-  s->q   = calloc((p->n_heads * head_size), sizeof(float));
-  s->kc  = calloc((p->n_layers * p->seq_len * ispc_kv_dim), sizeof(float));
-  s->vc  = calloc((p->n_layers * p->seq_len * ispc_kv_dim), sizeof(float));
-  s->att = calloc((p->n_heads * ispc_seq_len), sizeof(float));
-  s->logits = calloc(ispc_vocab_size, sizeof(float));
+  status = posix_memalign((void **)&(s->x), ALIGN, 
+      (ispc_dim * sizeof(float)));
+  cBYE(status);
+
+  status = posix_memalign((void **)&(s->xb), ALIGN, 
+      (ispc_dim * sizeof(float)));
+  cBYE(status);
+
+  status = posix_memalign((void **)&(s->xb2), ALIGN, 
+      (ispc_dim * sizeof(float)));
+  cBYE(status);
+
+  sz = (ispc_hidden_dim * sizeof(float));
+  status = posix_memalign((void **)&(s->hb), ALIGN, sz);
+  cBYE(status);
+
+  sz = (ispc_hidden_dim * sizeof(float));
+  status = posix_memalign((void **)&(s->hb2), ALIGN, sz);
+  cBYE(status);
+
+  sz = (((size_t)p->n_heads * ispc_head_size) * sizeof(float));
+  status = posix_memalign((void **)&(s->q), ALIGN, sz);
+  cBYE(status);
+
+  sz = (((size_t)p->n_layers * (size_t)p->seq_len * ispc_kv_dim) * sizeof(float));
+  status = posix_memalign((void **)&(s->kc), ALIGN, sz);
+  cBYE(status);
+
+  sz = (((size_t)p->n_layers * (size_t)p->seq_len * ispc_kv_dim) * sizeof(float));
+  status = posix_memalign((void **)&(s->vc), ALIGN, sz);
+  cBYE(status);
+
+  sz = (((size_t)p->n_heads * ispc_seq_len) * sizeof(float));
+  status = posix_memalign((void **)&(s->att), ALIGN, sz); 
+  cBYE(status);
+
+  sz = (ispc_vocab_size * sizeof(float));
+  status = posix_memalign((void **)&(s->logits), ALIGN, sz);
+  cBYE(status);
 
   // ensure all mallocs went fine
   if (!s->x || !s->xb || !s->xb2 || !s->hb || !s->hb2 || !s->q
