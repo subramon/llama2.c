@@ -12,8 +12,8 @@ matmul(
   // by far the most amount of time is spent inside this little function
   int i;
   for (i = 0; i < d; i++) {
-    float val = 0.0f;
-    float *w_i = w + (i*n);
+    register float val = 0.0f;
+    register float *w_i = w + (i*n);
     for (int j = 0; j < n; j++) {
       val += w_i[j] * x[j];
     }

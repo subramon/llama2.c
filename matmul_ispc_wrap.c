@@ -1,4 +1,5 @@
 #include "dot_prod.h"
+#include "dot_prod_256.h"
 #include "matmul_ispc_wrap.h"
 void 
 matmul(
@@ -14,5 +15,7 @@ matmul(
   for (  int i  = 0; i < d; i++) {
     const float * const w_i = w + (i*n);
     dot_prod(x, w_i, n, &(xout[i]));
+    // Strangely, following was waaaay slower.
+    // xout[i] = dot_product_fma_avx2(x, w_i, n);
   }
 }

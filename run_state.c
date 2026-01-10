@@ -8,7 +8,7 @@
 #include "macros.h"
 #include "run_state.h"
 
-#define ALIGN 64 // TODO P1 Get this value from ISPC 
+#define ALIGN 512 // TODO P1 Get this value from ISPC 
 
 int
 malloc_run_state(

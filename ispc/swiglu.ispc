@@ -7,6 +7,7 @@ swiglu(
 {
   assume(n % programCount == 0);
   foreach ( i = 0 ... n ) { 
+    // prefetchw_l1(&(x[i+32]));
     varying float val = x[i];
     // silu(x)=x*σ(x), where σ(x) is the logistic sigmoid
     val *= (1.0f / (1.0f + exp(-val)));

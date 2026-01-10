@@ -14,6 +14,7 @@ rmsnorm(
   // calculate sum of squares
   varying float v_ss = 0.0f; // varying accumulator 
   foreach ( j = 0 ... sz ) {
+    // prefetch_l1(&(x[j+32]));
     v_ss += x[j] * x[j];
   }
   uniform float u_ss = reduce_add(v_ss);  // uniform accumulator 
@@ -22,6 +23,9 @@ rmsnorm(
   u_ss = 1.0f / sqrt(u_ss);
   // normalize and scale
   foreach ( j = 0 ... sz ) {
+    // prefetch_l1(&(x[j+32]));
+    // prefetch_l1(&(weight[j+32]));
+    // prefetchw_l1(&(o[j+32]));
     o[j] = weight[j] * u_ss * x[j];
   }
 }

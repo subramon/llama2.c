@@ -1,3 +1,6 @@
+The prefetch instructions slowed things down dramatically. 
+Hence, Disabled them.
+
 ASSUME()
 
 The ispc standard library includes a mechanism for adding assume() statements to ispc program code. The assume() function takes a single uniform boolean expression as an argument. This expression is assumed to be true and this information will be used for optimization when possible.

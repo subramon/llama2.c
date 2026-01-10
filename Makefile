@@ -5,8 +5,12 @@ CC = gcc
 # the most basic way of building that is most likely to work on most systems
 all : run runq run_ispc cli_split_weights
 
+LNK_FLAGS := -flto
+# LNK_FLAGS += -pg 
+
 # CFLAGS := -g -O0
-CFLAGS := -O3
+CFLAGS := -O3 -Ofast
+# CFLAGS += -pg # for profiling
 # CFLAGS += -DDEBUG
 CFLAGS += -flto # for Link Time Optimization 
 # CFLAGS += -msse4.1 # TODO 
@@ -63,7 +67,12 @@ OBJS  = $(SRCS:.c=.o)
 ISPC_OBJS  = $(ISPC_SRCS:.ispc=.o)
 
 ISPC_FLAGS := --addressing=32
-# ISPC_FLAGS += --opt=fast-math 
+ISPC_FLAGS += --opt=fast-math --math-lib=fast
+# ISPC_FLAGS += --vec-report=5
+ISPC_FLAGS += -O3
+
+dot_prod_256.o : dot_prod_256.c
+	gcc -c ${CFLAGS} ${INCS} dot_prod_256.c -mfma -mavx2 -o dot_prod_256.o
 
 ispc/mul_v_add_s.o : 
 	  ispc ${INCS} ${ISPC_FLAGS} ispc/mul_v_add_s.ispc -o ispc/mul_v_add_s.o 
@@ -93,15 +102,18 @@ run: run.o  ${OBJS}
 
 #TODO Delete argmax below 
 #TODO Delete prob_select below 
-run_ispc: run.o  ${ISPC_OBJS} matmul_ispc_wrap.o \
+run_ispc: run.o  ${ISPC_OBJS} \
+	matmul_ispc_wrap.o \
+	dot_prod_256.o \
 	mmap_weights.o \
 	rope.o \
 	read_config.o \
 	argmax.o \
 	prob_select.o \
 	run_state.o 
-	$(CC) -o run_ispc run.o ${ISPC_OBJS} \
+	$(CC) ${LNK_FLAGS} -o run_ispc run.o ${ISPC_OBJS} \
 	matmul_ispc_wrap.o \
+	dot_prod_256.o \
 	mmap_weights.o \
 	rope.o \
 	read_config.o \

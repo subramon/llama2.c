@@ -57,6 +57,6 @@
     (P + \
     ((size_t)((size_t)x*(size_t)nY*(size_t)nZ))  + \
     ((size_t)((size_t)y*(size_t)nZ))) }
-#define mcr_round_up(x) { ((((unsigned int)x >> LOG2_FLOATS_IN_REG ) << LOG2_FLOATS_IN_REG ) == (unsigned int)x ? (unsigned int)x : (((unsigned int)x >> LOG2_FLOATS_IN_REG ) +1)<< LOG2_FLOATS_IN_REG) }
+#define mcr_round_up(x) { ((((unsigned int)x / FLOATS_IN_REG ) * FLOATS_IN_REG ) == (unsigned int)x ? (unsigned int)x : (((unsigned int)x * FLOATS_IN_REG ) +1) / FLOATS_IN_REG) }
 
 #endif // __MACROS_H

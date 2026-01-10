@@ -6,8 +6,8 @@ argmax(
     ) 
 {
   // return the index, i, that has the highest value X[i]
-  int max_i = 0;
-  float max_p = X[0];
+  register int max_i = 0;
+  register float max_p = X[0];
   for (int i = 1; i < n; i++) {
     if (X[i] > max_p) {
       max_i = i;

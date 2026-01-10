@@ -3,6 +3,7 @@
 #include <omp.h>
 #include <stdlib.h>
 #include <stdint.h>
+#include <inttypes.h>
 #include <ctype.h>
 #include <time.h>
 #include <math.h>
@@ -10,6 +11,8 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <sys/mman.h>
+#include <x86intrin.h> // for rdtsc
+
 
 #include "consts.h"
 #include "macros.h"
@@ -28,6 +31,7 @@
 #include "argmax.h"
 #include "prob_select.h"
 
+uint64_t g_t_matmul;
 // -------------------------------------------------------------------
 // Transformer model
 #include "weights_file_layout.h"
@@ -114,6 +118,8 @@ forward(
   size_t ispc_kv_dim = mcr_round_up(kv_dim);
   size_t ispc_head_size = mcr_round_up(head_size);
 
+  uint64_t t1, t2;
+
 #ifdef DEBUG
   if ( ( pos < 0 ) || ( pos >= p->seq_len ) ) { go_BYE(-1); }
   if ( ( token < 0 ) || ( token >= p->vocab_size ) ) { go_BYE(-1); }
@@ -136,9 +142,12 @@ forward(
     float * const w_v = mcr_3d_to_2d(w->wv, l, dim, ispc_kv_dim);
 
     // qkv matmuls for this position
+    t1 = __rdtsc();
     matmul(s->q,    s->xb, w_q, dim, dim);
     matmul(key_ptr, s->xb, w_k, dim, kv_dim);
     matmul(val_ptr, s->xb, w_v, dim, kv_dim);
+    t2 = __rdtsc();
+    g_t_matmul += t2 - t1; 
 
     // RoPE relative positional encoding: 
     // complex-valued rotate q and k in each head
@@ -203,7 +212,10 @@ forward(
 
     // final matmul to get the output of the attention
     float *wo_ptr = mcr_3d_to_2d(w->wo, l, dim, ispc_dim);
+    t1 = __rdtsc();
     matmul(s->xb2, s->xb, wo_ptr, dim, dim);
+    t2 = __rdtsc();
+    g_t_matmul += t2 - t1; 
 
     // residual connection back into x
     add_v(x, s->xb2, dim); 
@@ -216,15 +228,21 @@ forward(
     // first calculate self.w1(x) and self.w3(x)
     float *w1_ptr = mcr_3d_to_2d(w->w1, l, hidden_dim, ispc_dim);
     float *w3_ptr = mcr_3d_to_2d(w->w3, l, hidden_dim, ispc_dim);
+    t1 = __rdtsc();
     matmul(s->hb,  s->xb, w1_ptr, dim, hidden_dim);
     matmul(s->hb2, s->xb, w3_ptr, dim, hidden_dim);
+    t2 = __rdtsc();
+    g_t_matmul += t2 - t1; 
 
     // SwiGLU non-linearity
     swiglu(s->hb, s->hb2, hidden_dim);
 
     // final matmul to get the output of the ffn
     float *w2_ptr = mcr_3d_to_2d(w->w2, l, dim, ispc_hidden_dim);
+    t1 = __rdtsc();
     matmul(s->xb, s->hb, w2_ptr, hidden_dim, dim);
+    t2 = __rdtsc();
+    g_t_matmul += t2 - t1; 
 
     // residual connection
     add_v(x, s->xb, dim); 
@@ -857,6 +875,7 @@ int main(
     ) 
 {
   int status = 0;
+  g_t_matmul = 0; // global
   // default parameters
   char *checkpoint_path = NULL;  // e.g. out/model.bin
   const char *tokenizer_path = "tokenizer.bin";
@@ -910,7 +929,11 @@ int main(
 
   // run!
   if (strcmp(mode, "generate") == 0) {
+    uint64_t t1 = __rdtsc();
     status = generate(&transformer, &tokenizer, &sampler, prompt, steps);
+    uint64_t t2 = __rdtsc();
+    printf("Total  clocks = %" PRIu64 "\n", t2 -t1);
+    printf("matmul clocks = %" PRIu64 "\n", g_t_matmul); 
   } 
   else if (strcmp(mode, "chat") == 0) {
     status = chat(&transformer, &tokenizer, &sampler, prompt, 

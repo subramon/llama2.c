@@ -10,7 +10,7 @@ rmsnorm(
     ) 
 {
   // calculate sum of squares
-  float ss = 0.0f;
+  register float ss = 0.0f;
   for (int j = 0; j < n; j++) {
     ss += x[j] * x[j];
   }

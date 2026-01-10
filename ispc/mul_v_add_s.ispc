@@ -9,6 +9,8 @@ mul_v_add_s(
 {
   assume(n % programCount == 0);
   foreach ( i = 0 ... n ) { 
+    // prefetch_l1(&(y[i+32]));
+    // prefetchw_l1(&(x[i+32]));
     x[i] += scalar * y[i];
   }
 }

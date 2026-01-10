@@ -8,7 +8,7 @@ prob_select(
 {
   // sample index from probabilities (they must sum to 1!)
   // coin is a random number in [0, 1), usually from random_f32()
-  float cdf = 0.0f;
+  register float cdf = 0.0f;
   for (int i = 0; i < n; i++) {
     cdf += probabilities[i];
     if (coin < cdf) {
