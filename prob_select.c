@@ -1,7 +1,7 @@
 #include "prob_select.h"
 int 
 prob_select(
-    float* probabilities, 
+    const float* const probabilities,  // [n] 
     int n, 
     float coin
     ) 

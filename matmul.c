@@ -1,3 +1,6 @@
+#include <x86intrin.h> // for rdtsc
+#include <stdint.h> // for uint64_t
+extern uint64_t g_t_matmul; // for timing 
 #include "matmul.h"
 void 
 matmul(
@@ -11,6 +14,7 @@ matmul(
   // W (d,n) @ x (n,) -> xout (d,)
   // by far the most amount of time is spent inside this little function
   int i;
+  uint64_t t = __rdtsc();
   for (i = 0; i < d; i++) {
     register float val = 0.0f;
     register float *w_i = w + (i*n);
@@ -19,5 +23,6 @@ matmul(
     }
     xout[i] = val;
   }
+  g_t_matmul += (__rdtsc() - t);
 }
 

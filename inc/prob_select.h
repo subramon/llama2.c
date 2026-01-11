@@ -1,6 +1,6 @@
 extern int 
 prob_select(
-    float* probabilities, 
+    const float* const probabilities, 
     int n, 
     float coin
     );

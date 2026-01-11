@@ -32,6 +32,15 @@
 #include "prob_select.h"
 
 uint64_t g_t_matmul;
+uint64_t g_t_rmsnorm;
+uint64_t g_t_softmax;
+uint64_t g_t_dot_prod;
+uint64_t g_t_add_v;
+uint64_t g_t_div_s;
+uint64_t g_t_mul_v_add_s;
+uint64_t g_t_swiglu;
+uint64_t g_t_argmax;
+uint64_t g_t_prob_select;
 // -------------------------------------------------------------------
 // Transformer model
 #include "weights_file_layout.h"
@@ -142,12 +151,9 @@ forward(
     float * const w_v = mcr_3d_to_2d(w->wv, l, dim, ispc_kv_dim);
 
     // qkv matmuls for this position
-    t1 = __rdtsc();
     matmul(s->q,    s->xb, w_q, dim, dim);
     matmul(key_ptr, s->xb, w_k, dim, kv_dim);
     matmul(val_ptr, s->xb, w_v, dim, kv_dim);
-    t2 = __rdtsc();
-    g_t_matmul += t2 - t1; 
 
     // RoPE relative positional encoding: 
     // complex-valued rotate q and k in each head
@@ -161,6 +167,10 @@ forward(
     else {
       nP_inner = 1; nP_outer = nP; 
     }
+    /*
+    printf("nH, nPos, nP/nP_outer/nP_inner = (%d, %d), %d, %d, %d \n", 
+        p->n_heads, pos, nP, nP_outer, nP_inner);
+        */
 #pragma omp parallel for num_threads(nP_outer)
     for ( int h = 0; h < p->n_heads; h++) {
       // get the query vector for this head
@@ -212,10 +222,7 @@ forward(
 
     // final matmul to get the output of the attention
     float *wo_ptr = mcr_3d_to_2d(w->wo, l, dim, ispc_dim);
-    t1 = __rdtsc();
     matmul(s->xb2, s->xb, wo_ptr, dim, dim);
-    t2 = __rdtsc();
-    g_t_matmul += t2 - t1; 
 
     // residual connection back into x
     add_v(x, s->xb2, dim); 
@@ -228,21 +235,15 @@ forward(
     // first calculate self.w1(x) and self.w3(x)
     float *w1_ptr = mcr_3d_to_2d(w->w1, l, hidden_dim, ispc_dim);
     float *w3_ptr = mcr_3d_to_2d(w->w3, l, hidden_dim, ispc_dim);
-    t1 = __rdtsc();
     matmul(s->hb,  s->xb, w1_ptr, dim, hidden_dim);
     matmul(s->hb2, s->xb, w3_ptr, dim, hidden_dim);
-    t2 = __rdtsc();
-    g_t_matmul += t2 - t1; 
 
     // SwiGLU non-linearity
     swiglu(s->hb, s->hb2, hidden_dim);
 
     // final matmul to get the output of the ffn
     float *w2_ptr = mcr_3d_to_2d(w->w2, l, dim, ispc_hidden_dim);
-    t1 = __rdtsc();
     matmul(s->xb, s->hb, w2_ptr, hidden_dim, dim);
-    t2 = __rdtsc();
-    g_t_matmul += t2 - t1; 
 
     // residual connection
     add_v(x, s->xb, dim); 
@@ -875,7 +876,16 @@ int main(
     ) 
 {
   int status = 0;
-  g_t_matmul = 0; // global
+  g_t_matmul = 0;
+  g_t_rmsnorm = 0;
+  g_t_softmax = 0;
+  g_t_dot_prod = 0;
+  g_t_add_v = 0;
+  g_t_div_s = 0;
+  g_t_mul_v_add_s = 0;
+  g_t_swiglu = 0;
+  g_t_argmax = 0;
+  g_t_prob_select = 0;
   // default parameters
   char *checkpoint_path = NULL;  // e.g. out/model.bin
   const char *tokenizer_path = "tokenizer.bin";
@@ -932,8 +942,9 @@ int main(
     uint64_t t1 = __rdtsc();
     status = generate(&transformer, &tokenizer, &sampler, prompt, steps);
     uint64_t t2 = __rdtsc();
-    printf("Total  clocks = %" PRIu64 "\n", t2 -t1);
-    printf("matmul clocks = %" PRIu64 "\n", g_t_matmul); 
+    printf("Total  clocks   = %" PRIu64 "\n", t2 -t1);
+    printf("matmul clocks   = %" PRIu64 "\n", g_t_matmul); 
+    printf("dot_prod clocks = %" PRIu64 "\n", g_t_dot_prod); 
   } 
   else if (strcmp(mode, "chat") == 0) {
     status = chat(&transformer, &tokenizer, &sampler, prompt, 
