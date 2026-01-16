@@ -1,6 +1,7 @@
 #include <x86intrin.h> // for rdtsc
 #include <stdint.h> // for uint64_t
 extern uint64_t g_t_matmul; // for timing 
+extern uint64_t g_n_matmul; // for timing 
 
 #include "dot_prod.h"
 #include "dot_prod_256.h"
@@ -25,4 +26,5 @@ matmul(
     // xout[i] = dot_product_fma_avx2(x, w_i, n);
   }
   g_t_matmul += (__rdtsc() - t);
+  g_n_matmul += d * n * 2; 
 }

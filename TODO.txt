@@ -1,3 +1,8 @@
+Consider using 
+int divUp(int a, int b) {
+    return (a - 1) / b + 1;
+}
+//----------------------------------------------
 ISPC: 32-bit Addressing: Use –addressing=32 if your data fits, as it avoids expensive 64-bit vector address calculations.
 
 

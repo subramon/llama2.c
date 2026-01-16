@@ -32,6 +32,7 @@
 #include "prob_select.h"
 
 uint64_t g_t_matmul;
+uint64_t g_n_matmul;
 uint64_t g_t_rmsnorm;
 uint64_t g_t_softmax;
 uint64_t g_t_dot_prod;
@@ -138,7 +139,7 @@ forward(
   memcpy(x, tet_ptr, ((size_t)dim*sizeof(float)));
 
   // forward all the layers
-  for( int l = 0; l < p->n_layers; l++) {
+  for ( int l = 0; l < p->n_layers; l++) {
     // attention rmsnorm
     float * const w_rms_att_l = mcr_2d_to_1d(w->rms_att_weight, l, ispc_dim);
     rmsnorm(s->xb, x, w_rms_att_l, dim);
@@ -171,6 +172,10 @@ forward(
     printf("nH, nPos, nP/nP_outer/nP_inner = (%d, %d), %d, %d, %d \n", 
         p->n_heads, pos, nP, nP_outer, nP_inner);
         */
+    // TODO P1 Look into guidance on multiple omp parallel regions
+    // Avoid nested parallelism: Tell Bajj about this
+    // Study taskloop in OpenMP
+    // Collapse these 2 loops into one
 #pragma omp parallel for num_threads(nP_outer)
     for ( int h = 0; h < p->n_heads; h++) {
       // get the query vector for this head
@@ -944,6 +949,7 @@ int main(
     uint64_t t2 = __rdtsc();
     printf("Total  clocks   = %" PRIu64 "\n", t2 -t1);
     printf("matmul clocks   = %" PRIu64 "\n", g_t_matmul); 
+    printf("matmul flops    = %" PRIu64 "\n", g_n_matmul); 
     printf("dot_prod clocks = %" PRIu64 "\n", g_t_dot_prod); 
   } 
   else if (strcmp(mode, "chat") == 0) {
