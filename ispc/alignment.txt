@@ -1,0 +1,13 @@
+The assume() hint informs the compiler that count is a multiple of programCount at compile time. This results in removal of the remainder loop usually required for foreach.
+
+typedef float<TARGET_WIDTH> AlignedFloat;
+unmasked void foo4(uniform float Result[], const uniform float Source1[], const uniform unsigned int Iterations)
+{
+     assume(((uniform uint64)((void*)Source1) & (32 * TARGET_WIDTH)-1) == 0);
+     assume(((uniform uint64)((void*)Result) & (32 * TARGET_WIDTH)-1) == 0);
+     uniform AlignedFloat S1;
+     S1[programIndex] = Source1[programIndex];
+     const uniform AlignedFloat R = S1;
+     Result[programIndex] = R[programIndex];
+}
+The assume() hint informs the compiler that memory locations used by loads and stores are aligned. This results in aligned instructions instead of unaligned instructions.

@@ -167,10 +167,11 @@ forward(
     // TODO P3: Study taskloop in OpenMP
     // TODO P3: Consider Collapse these 2 loops into one
     uint64_t t_start =  __rdtsc();
-    // CAUTION: Parallelizing this loop slows things down!
+    // CAUTION: Parallelizing this loop slows things down for gcc
     // STRANGE: Slows it down for gcc but not for ISPC. Puzzling...
-    printf("nheads = %d, npos = %d \n", p->n_heads, pos); 
-// #pragma omp parallel for 
+    // However, in one simple case, speedup was only 1.5x
+    // I don't think there is enough work to justify overhead of omp
+#pragma omp parallel for schedule(static, 1)
     for ( int h = 0; h < p->n_heads; h++) {
       // get the query vector for this head
       const float* const q_h = mcr_2d_to_1d(s->q, h, ispc_head_size); 

@@ -63,7 +63,6 @@ SRCS += swiglu.c
 SRCS += argmax.c 
 SRCS += read_config.c 
 SRCS += target_width.c 
-SRCS += multi_head_attention.c 
 
 OBJS  = $(SRCS:.c=.o)
 
@@ -113,7 +112,6 @@ run_ispc: run.o  ${ISPC_OBJS} \
 	dot_prod_256.o \
 	mmap_weights.o \
 	rope.o \
-	multi_head_attention.o \
 	read_config.o \
 	argmax.o \
 	prob_select.o \
@@ -123,7 +121,6 @@ run_ispc: run.o  ${ISPC_OBJS} \
 	dot_prod_256.o \
 	mmap_weights.o \
 	rope.o \
-	multi_head_attention.o \
 	read_config.o \
 	argmax.o \
 	prob_select.o \
