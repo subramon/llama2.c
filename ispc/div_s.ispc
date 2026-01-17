@@ -1,6 +1,7 @@
+#include "consts.h"
 export void 
 div_s(
-    uniform float x[] ,
+    __attribute__((aligned(BYTES_IN_REG))) uniform float x[] ,
     uniform float scalar,
     uniform int n
     ) 

@@ -1,9 +1,11 @@
+#include "consts.h"
+
 export void 
 dot_prod(
-    uniform float x[], 
-    uniform float y[], 
+    __attribute__((aligned(BYTES_IN_REG))) uniform float x[], 
+    __attribute__((aligned(BYTES_IN_REG))) uniform float y[], 
     uniform int n,
-    uniform float rslt[]
+    __attribute__((aligned(BYTES_IN_REG))) uniform float rslt[]
     ) 
 {
   varying float sum = 0.0f;

@@ -1,6 +1,7 @@
+#include "consts.h"
 export uniform int 
 argmax(
-    uniform float *uniform X, 
+    __attribute__((aligned(BYTES_IN_REG))) uniform float *uniform X, 
     uniform int count
     ) 
 {

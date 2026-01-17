@@ -67,7 +67,7 @@ OBJS  = $(SRCS:.c=.o)
 ISPC_OBJS  = $(ISPC_SRCS:.ispc=.o)
 
 ISPC_FLAGS := --addressing=32
-ISPC_FLAGS += --opt=fast-math --math-lib=fast
+ISPC_FLAGS += --opt=fast-math --math-lib=fast --opt=force-aligned-memory
 # ISPC_FLAGS += --vec-report=5
 ISPC_FLAGS += -O3
 

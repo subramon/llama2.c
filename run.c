@@ -33,6 +33,8 @@
 
 uint64_t g_t_matmul;
 uint64_t g_n_matmul;
+uint64_t g_t_omp_loop;
+uint64_t g_n_omp_loop;
 uint64_t g_t_rmsnorm;
 uint64_t g_t_softmax;
 uint64_t g_t_dot_prod;
@@ -161,29 +163,17 @@ forward(
     status = rope(dim, kv_dim, head_size, pos, s->q, key_ptr); cBYE(status);
 
     // multihead attention. iterate over all heads in parallel
-    int nP = omp_get_num_procs(); int nP_outer = 1, nP_inner = 1;
-    if ( pos >= (int)((int)FLOATS_IN_CACHE_LINE * nP) ) { 
-      nP_inner = nP; nP_outer = 1; 
-    }
-    else {
-      nP_inner = 1; nP_outer = nP; 
-    }
-    /*
-    printf("nH, nPos, nP/nP_outer/nP_inner = (%d, %d), %d, %d, %d \n", 
-        p->n_heads, pos, nP, nP_outer, nP_inner);
-        */
-    // TODO P1 Look into guidance on multiple omp parallel regions
-    // Avoid nested parallelism: Tell Bajj about this
-    // Study taskloop in OpenMP
-    // Collapse these 2 loops into one
-#pragma omp parallel for num_threads(nP_outer)
+    // TODO P3: Study taskloop in OpenMP
+    // TODO P3: Consider Collapse these 2 loops into one
+    uint64_t t_start =  __rdtsc();
+    // CAUTION: Parallelizing this loop slows things down!
+// #pragma omp parallel for 
     for ( int h = 0; h < p->n_heads; h++) {
       // get the query vector for this head
       const float* const q_h = mcr_2d_to_1d(s->q, h, ispc_head_size); 
       // attention scores for this head
       float* att_h = mcr_2d_to_1d(s->att, h, ispc_seq_len);
       // iterate over all timesteps, including the current one
-#pragma omp parallel for num_threads(nP_inner)
       for (int t = 0; t <= pos; t++) {
         // get the key vector for this head and at this timestep
         float *keyptr = mcr_3d_to_1d(s->kc, l, t, p->seq_len, ispc_kv_dim);
@@ -207,7 +197,6 @@ forward(
       // weighted sum of the values, store back into xb
       float* const xb = s->xb + h * head_size;
       memset(xb, 0, ((size_t)(head_size * sizeof(float))));
-#pragma omp parallel for num_threads(nP_inner)
       for (int t = 0; t <= pos; t++) {
         // get the value vector for this head and at this timestep
         float *valptr = mcr_3d_to_1d(s->vc, l, t, p->seq_len, ispc_kv_dim);
@@ -223,6 +212,8 @@ forward(
         mul_v_add_s(xb, a, valptr, head_size); // xb[i] += a * v[i]
       }
     }
+    g_t_omp_loop += _rdtsc() - t_start;
+    g_n_omp_loop ++;
     cBYE(status);
 
     // final matmul to get the output of the attention
@@ -950,6 +941,8 @@ int main(
     printf("Total  clocks   = %" PRIu64 "\n", t2 -t1);
     printf("matmul clocks   = %" PRIu64 "\n", g_t_matmul); 
     printf("matmul flops    = %" PRIu64 "\n", g_n_matmul); 
+    printf("omp    clocks   = %" PRIu64 "\n", g_t_omp_loop); 
+    printf("omp    loops    = %" PRIu64 "\n", g_n_omp_loop); 
     printf("dot_prod clocks = %" PRIu64 "\n", g_t_dot_prod); 
   } 
   else if (strcmp(mode, "chat") == 0) {
