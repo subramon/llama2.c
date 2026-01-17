@@ -1,9 +1,12 @@
+#include "consts.h"
+__attribute__((external_only))
 export void 
 softmax(
-    uniform float x[], 
+    __attribute__((aligned(BYTES_IN_REG))) uniform float x[], 
     uniform int size
     ) 
 {
+  assume(((uniform uint64)((void*)x) & (32 * TARGET_WIDTH)-1) == 0);
   // find max value (for numerical stability)
   varying float v_max_val = 0; // TODO What should we set this to?
   foreach ( i = 0 ... size ) { 

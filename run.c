@@ -30,6 +30,7 @@
 #include "swiglu.h"
 #include "argmax.h"
 #include "prob_select.h"
+#include "target_width.h"
 
 uint64_t g_t_matmul;
 uint64_t g_n_matmul;
@@ -167,6 +168,8 @@ forward(
     // TODO P3: Consider Collapse these 2 loops into one
     uint64_t t_start =  __rdtsc();
     // CAUTION: Parallelizing this loop slows things down!
+    // STRANGE: Slows it down for gcc but not for ISPC. Puzzling...
+    printf("nheads = %d, npos = %d \n", p->n_heads, pos); 
 // #pragma omp parallel for 
     for ( int h = 0; h < p->n_heads; h++) {
       // get the query vector for this head
@@ -892,6 +895,15 @@ int main(
   unsigned long long rng_seed = 0; // seed rng with time by default
   const char *mode = "generate";    // generate|chat
   char *system_prompt = NULL; // the (optional) system prompt to use in chat mode
+
+  // TODO P4: These should not be necessary. 
+  // Doint it because I am Having problem with #define in ISPC
+  {
+    int x; 
+    target_width(&x);
+    if ( FLOATS_IN_REG != x ) { go_BYE(-1); }
+    if ( BYTES_IN_REG != (sizeof(float) * FLOATS_IN_REG) ) { go_BYE(-1); }
+  }
 
   // poor man's C argparse so we can override the defaults above from the command line
   if (argc >= 2) { checkpoint_path = argv[1]; } else { error_usage(); }

@@ -43,6 +43,7 @@ ISPC_SRCS += ./ispc/add_v.ispc
 ISPC_SRCS += ./ispc/div_s.ispc 
 ISPC_SRCS += ./ispc/mul_v_add_s.ispc 
 ISPC_SRCS += ./ispc/swiglu.ispc 
+ISPC_SRCS += ./ispc/target_width.ispc 
 # TODO  ISPC_SRCS += ./ispc/argmax.ispc 
 # TODO  ISPC_SRCS += ./ispc/prob_select.ispc 
 
@@ -61,6 +62,8 @@ SRCS += mul_v_add_s.c
 SRCS += swiglu.c 
 SRCS += argmax.c 
 SRCS += read_config.c 
+SRCS += target_width.c 
+SRCS += multi_head_attention.c 
 
 OBJS  = $(SRCS:.c=.o)
 
@@ -73,6 +76,9 @@ ISPC_FLAGS += -O3
 
 dot_prod_256.o : dot_prod_256.c
 	gcc -c ${CFLAGS} ${INCS} dot_prod_256.c -mfma -mavx2 -o dot_prod_256.o
+
+ispc/target_width.o : 
+	  ispc ${INCS} ${ISPC_FLAGS} ispc/target_width.ispc -o ispc/target_width.o 
 
 ispc/mul_v_add_s.o : 
 	  ispc ${INCS} ${ISPC_FLAGS} ispc/mul_v_add_s.ispc -o ispc/mul_v_add_s.o 
@@ -107,6 +113,7 @@ run_ispc: run.o  ${ISPC_OBJS} \
 	dot_prod_256.o \
 	mmap_weights.o \
 	rope.o \
+	multi_head_attention.o \
 	read_config.o \
 	argmax.o \
 	prob_select.o \
@@ -116,6 +123,7 @@ run_ispc: run.o  ${ISPC_OBJS} \
 	dot_prod_256.o \
 	mmap_weights.o \
 	rope.o \
+	multi_head_attention.o \
 	read_config.o \
 	argmax.o \
 	prob_select.o \

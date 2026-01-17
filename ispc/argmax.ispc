@@ -1,4 +1,5 @@
 #include "consts.h"
+__attribute__((external_only))
 export uniform int 
 argmax(
     __attribute__((aligned(BYTES_IN_REG))) uniform float *uniform X, 
@@ -6,6 +7,7 @@ argmax(
     ) 
 {
   assume((count % programCount) == 0);
+  assume(((uniform uint64)((void*)X) & (32 * TARGET_WIDTH)-1) == 0);
   // 1. Find the maximum value and its local index within each active program instance (lane)
   // Initialize with the first element for simplicity
   varying float value_local = X[programIndex];
