@@ -5,7 +5,7 @@
 #include "weights_file_layout.h"
 #include "read_config.h"
 #include "qntz_2d.h"
-#include "qntz_3d.h"
+// TODO P1 #include "qntz_3d.h"
 #include "mmap_weights.h"
 
 int
@@ -25,7 +25,6 @@ main(
   //---------------------------------------------------
   int padding = 0; float fzero = 0;
   // Create individual file for each "split"
-  X += sizeof(Config); nX -= sizeof(Config);
   // create token_embedding_table
   status = qntz_2d(
       "_token_embedding_table.bin", "_token_embedding_table.ui8",
@@ -39,6 +38,7 @@ main(
       "_rms_att_weight.offset", "_rms_att_weight.delta", 
       C.n_layers, C.dim);
   cBYE(status);
+#ifdef XXX
   //-------------------------------------------------------
   // create wq
   status = qntz_3d(
@@ -47,7 +47,6 @@ main(
       C.n_layers, C.dim, C.n_heads * head_size);
   cBYE(status);
   //-------------------------------------------------------
-#ifdef XXX
   // create wk
   status = mat_3d_to_bin_file(&X, &nX, "_wk.bin", 
       sizeof(float), C.n_layers, C.dim, C.n_kv_heads * head_size);
