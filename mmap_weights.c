@@ -7,23 +7,13 @@
 
 int
 mmap_weights(
-    const Config * const ptr_C,
     TransformerWeights * restrict ptr_w
     )
 {
   int status = 0;
   char *X = NULL; size_t nX = 0;
-  int head_size = ptr_C->dim / ptr_C->n_heads;
   // create token_embedding_table
   status = rs_mmap("_token_embedding_table.bin", &X, &nX, 0); cBYE(status);
-  float maxval = -1 * FLT_MAX;
-  float minval = FLT_MAX;
-  for ( uint32_t i = 0; i < nX/sizeof(float); i++ ) { 
-    float fval = ((float *)X)[i];
-    if ( fval < minval ) { minval = fval; }
-    if ( fval > maxval ) { maxval = fval; }
-  }
-  printf("tokens min/max = %f, %f \n", minval, maxval); 
   ptr_w->token_embedding_table = (float *)X; X = NULL;
   ptr_w->sz_tet = nX; nX = 0;
   //-------------------------------------------------------

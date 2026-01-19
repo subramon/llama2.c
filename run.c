@@ -75,7 +75,7 @@ read_checkpoint(
   // bit yikes. TODO P3 
   int shared_weights = ptr_config->vocab_size > 0 ? 1 : 0;
   ptr_config->vocab_size = abs(ptr_config->vocab_size);
-  status = mmap_weights(ptr_config, ptr_weights); cBYE(status);
+  status = mmap_weights(ptr_weights); cBYE(status);
   status = qnt_mmap_weights(ptr_qnt_weights); cBYE(status);
 BYE:
   return status;

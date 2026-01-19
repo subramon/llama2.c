@@ -2,7 +2,7 @@
 # example override to clang: make run CC=clang
 CC = gcc
 
-all : run runq run_ispc cli_split_weights cli_qntz_weights
+all : run run_ispc cli_split_weights cli_qntz_weights
 
 LNK_FLAGS := -flto
 # LNK_FLAGS += -pg 
@@ -49,7 +49,7 @@ ISPC_SRCS += ./ispc/target_width.ispc
 SRCS += rmsnorm.c 
 SRCS += matmul.c 
 SRCS += softmax.c 
-SRCS += orig_mmap_weights.c 
+# TODO SRCS += orig_mmap_weights.c 
 SRCS += mmap_weights.c 
 SRCS += qnt_mmap_weights.c 
 SRCS += run_state.c 

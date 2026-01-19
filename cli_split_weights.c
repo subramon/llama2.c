@@ -104,7 +104,7 @@ main(
 
   //-------------------------------------------------------
   // Now read them in (mmap)
-  status = mmap_weights(&C, &W); cBYE(status);
+  status = mmap_weights(&W); cBYE(status);
   // some testing
   float *fptr = mcr_3d_to_1d(W.wo, 0, 0, C.n_layers, C.n_heads * head_size);
   printf("%f \n", *fptr);

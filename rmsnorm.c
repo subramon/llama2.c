@@ -14,7 +14,7 @@ rmsnorm(
   for (int j = 0; j < n; j++) {
     ss += x[j] * x[j];
   }
-  ss /= n;
+  ss /= (float)n;
   ss += 1e-5f;
   ss = 1.0f / sqrtf(ss);
   // normalize and scale
