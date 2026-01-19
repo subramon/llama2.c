@@ -141,11 +141,13 @@ runq: runq.o  ${OBJS}
 cli_qntz_weights : cli_qntz_weights.o \
 	read_config.o \
 	mmap_weights.o \
-	qntz_2d.o 
+	qntz_2d.o \
+	qntz_3d.o 
 	$(CC) -o cli_qntz_weights cli_qntz_weights.o  \
 	read_config.o \
 	mmap_weights.o \
 	qntz_2d.o \
+	qntz_3d.o \
 	${RSUTILS_SRC_ROOT}/src/librsutils.so
 
 cli_split_weights : cli_split_weights.o \

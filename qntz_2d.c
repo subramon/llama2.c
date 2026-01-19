@@ -38,8 +38,7 @@ qntz_2d(
     // scan the row to get min/max values  and compute delta/offset
     float minval = fX[idx];
     float maxval = fX[idx];
-    idx++;
-    for ( int j = 1; j < nC; j++ ) { 
+    for ( int j = 0; j < nC; j++ ) { 
       if ( fX[idx] < minval ) { minval = fX[idx]; }
       if ( fX[idx] > maxval ) { maxval = fX[idx]; }
       idx++;

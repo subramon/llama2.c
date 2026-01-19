@@ -5,7 +5,7 @@
 #include "weights_file_layout.h"
 #include "read_config.h"
 #include "qntz_2d.h"
-// TODO P1 #include "qntz_3d.h"
+#include "qntz_3d.h"
 #include "mmap_weights.h"
 
 int
@@ -38,7 +38,6 @@ main(
       "_rms_att_weight.offset", "_rms_att_weight.delta", 
       C.n_layers, C.dim);
   cBYE(status);
-#ifdef XXX
   //-------------------------------------------------------
   // create wq
   status = qntz_3d(
@@ -48,43 +47,47 @@ main(
   cBYE(status);
   //-------------------------------------------------------
   // create wk
-  status = mat_3d_to_bin_file(&X, &nX, "_wk.bin", 
-      sizeof(float), C.n_layers, C.dim, C.n_kv_heads * head_size);
+  status = qntz_3d(
+      "_wk.bin", "_wk.ui8", "_wk.offset", "_wk.delta", 
+      C.n_layers, C.dim, C.n_kv_heads * head_size);
   cBYE(status);
   //-------------------------------------------------------
   // create wv
-  status = mat_3d_to_bin_file(&X, &nX, "_wv.bin", 
-      sizeof(float), C.n_layers, C.dim, C.n_kv_heads * head_size);
+  status = qntz_3d(
+      "_wv.bin", "_wv.ui8", "_wv.offset", "_wv.delta", 
+      C.n_layers, C.dim, C.n_kv_heads * head_size);
   cBYE(status);
   //-------------------------------------------------------
   // create wo
-  status = mat_3d_to_bin_file(&X, &nX, "_wo.bin", 
-      sizeof(float), C.n_layers, C.n_heads * head_size, C.dim);
+  status = qntz_3d(
+      "_wo.bin", "_wo.ui8", "_wo.offset", "_wo.delta", 
+      C.n_layers, C.n_heads * head_size, C.dim);
   cBYE(status);
   //-------------------------------------------------------
   // create rms_ffn_weight
-  status = mat_2d_to_bin_file(&X, &nX, "_rms_ffn_weight.bin", 
-      sizeof(float), C.n_layers, C.dim);
+  status = qntz_2d(
+      "_rms_ffn_weight.bin", "_rms_ffn_weight.ui8", 
+      "_rms_ffn_weight.offset", "_rms_ffn_weight.delta", 
+      C.n_layers, C.dim);
   cBYE(status);
   //-------------------------------------------------------
   // create w1
-  status = mat_3d_to_bin_file(&X, &nX, "_w1.bin", 
-      sizeof(float), C.n_layers, C.dim, C.hidden_dim);
+  status = qntz_3d(
+      "_w1.bin", "_w1.ui8", "_w1.offset", "_w1.delta", 
+      C.n_layers, C.dim, C.hidden_dim);
   cBYE(status);
   //-------------------------------------------------------
   // create w2
-  status = mat_3d_to_bin_file(&X, &nX, "_w2.bin", 
-      sizeof(float), C.n_layers, C.hidden_dim, C.dim);
+  status = qntz_3d(
+      "_w2.bin", "_w2.ui8", "_w2.offset", "_w2.delta", 
+      C.n_layers, C.hidden_dim, C.dim);
   cBYE(status);
   //-------------------------------------------------------
   // create w3
-  status = mat_3d_to_bin_file(&X, &nX, "_w3.bin", 
-      sizeof(float), C.n_layers, C.dim, C.hidden_dim);
+  status = qntz_3d(
+      "_w3.bin", "_w3.ui8", "_w3.offset", "_w3.delta", 
+      C.n_layers, C.dim, C.hidden_dim);
   cBYE(status);
-  //-------------------------------------------------------
-  // TODO ??? "_rms_final_weight.bin", 
-  // TODO ??? "_wcls.bin", 
-#endif
   //-------------------------------------------------------
 BYE:
   return status;
