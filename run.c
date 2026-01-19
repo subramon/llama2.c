@@ -123,6 +123,7 @@ forward(
   // a few convenience variables
   Config* p = &transformer->config;
   TransformerWeights* w = &transformer->weights;
+  QntTransformerWeights* qw = &transformer->qnt_weights;
   RunState* s = &transformer->state;
   float *x = s->x;
   int dim = p->dim;
@@ -159,10 +160,29 @@ forward(
     float * const w_k = mcr_3d_to_2d(w->wk, l, dim, ispc_kv_dim);
     float * const w_v = mcr_3d_to_2d(w->wv, l, dim, ispc_kv_dim);
 
+#define XXXX
+#ifdef XXXX
+    float * const qw_q = mcr_3d_to_2d(qw->qnt_wq, l, dim, ispc_dim);
+    float * const qw_k = mcr_3d_to_2d(qw->qnt_wk, l, dim, ispc_kv_dim);
+    float * const qw_v = mcr_3d_to_2d(qw->qnt_wv, l, dim, ispc_kv_dim);
+
+    float * const qw_q_off = mcr_2d_to_1d(qw->offset_wq, l, ispc_dim);
+    float * const qw_k_off = mcr_2d_to_1d(qw->offset_wk, l, ispc_dim);
+    float * const qw_v_off = mcr_2d_to_1d(qw->offset_wv, l, ispc_dim);
+
+    float * const qw_q_del = mcr_2d_to_1d(qw->delta_wq, l, ispc_dim);
+    float * const qw_k_del = mcr_2d_to_1d(qw->delta_wk, l, ispc_dim);
+    float * const qw_v_del = mcr_2d_to_1d(qw->delta_wv, l, ispc_dim);
+    // qkv matmuls for this position
+    matmul_qnt(s->q,    s->xb, w_q, qw_q, qw_q_off, qw_q_del, dim, dim);
+    matmul_qnt(key_ptr, s->xb, w_k, qw_k, qw_k_off, qw_k_del, dim, kv_dim);
+    matmul_qnt(val_ptr, s->xb, w_v, qw_v, qw_v_off, qw_v_del, dim, kv_dim);
+#else
     // qkv matmuls for this position
     matmul(s->q,    s->xb, w_q, dim, dim);
     matmul(key_ptr, s->xb, w_k, dim, kv_dim);
     matmul(val_ptr, s->xb, w_v, dim, kv_dim);
+#endif
 
     // RoPE relative positional encoding: 
     // complex-valued rotate q and k in each head
@@ -314,8 +334,8 @@ build_tokenizer(
   for (int i = 0; i < vocab_size; i++) {
     if (fread(t->vocab_scores + i, sizeof(float), 1, file) != 1) { fprintf(stderr, "failed read\n"); exit(EXIT_FAILURE);}
     if (fread(&len, sizeof(int), 1, file) != 1) { fprintf(stderr, "failed read\n"); exit(EXIT_FAILURE); }
-    t->vocab[i] = (char *)malloc(len + 1);
-    if (fread(t->vocab[i], len, 1, file) != 1) { fprintf(stderr, "failed read\n"); exit(EXIT_FAILURE); }
+    t->vocab[i] = (char *)malloc((size_t)len + 1);
+    if (fread(t->vocab[i], (size_t)len, 1, file) != 1) { fprintf(stderr, "failed read\n"); exit(EXIT_FAILURE); }
     t->vocab[i][len] = '\0'; // add the string terminating token
   }
   fclose(file);
@@ -381,7 +401,7 @@ str_lookup(
   return res != NULL ? res->id : -1;
 }
 
-int
+static int
 encode(
     Tokenizer* t, 
     char *text, 
@@ -399,12 +419,12 @@ encode(
 
   if (t->sorted_vocab == NULL) {
     // lazily malloc and sort the vocabulary
-    t->sorted_vocab = malloc(t->vocab_size * sizeof(TokenIndex));
+    t->sorted_vocab = malloc((size_t)t->vocab_size * sizeof(TokenIndex));
     for (int i = 0; i < t->vocab_size; i++) {
       t->sorted_vocab[i].str = t->vocab[i];
       t->sorted_vocab[i].id = i;
     }
-    qsort(t->sorted_vocab, t->vocab_size, sizeof(TokenIndex), compare_tokens);
+    qsort(t->sorted_vocab, (size_t)t->vocab_size, sizeof(TokenIndex), compare_tokens);
   }
 
   // create a temporary buffer that will store merge candidates of always two consecutive tokens
@@ -539,8 +559,8 @@ compare(
     const void* b
     ) 
 {
-  ProbIndex* a_ = (ProbIndex*) a;
-  ProbIndex* b_ = (ProbIndex*) b;
+  const ProbIndex* a_ = (const ProbIndex*) a;
+  const ProbIndex* b_ = (const ProbIndex*) b;
   if (a_->prob > b_->prob) return -1;
   if (a_->prob < b_->prob) return 1;
   return 0;
@@ -629,7 +649,7 @@ random_u32(
   *state ^= *state >> 12;
   *state ^= *state << 25;
   *state ^= *state >> 27;
-  return (*state * 0x2545F4914F6CDD1Dull) >> 32;
+  return (uint32_t)((*state * 0x2545F4914F6CDD1Dull) >> 32);
 }
 static float random_f32(
     unsigned long long *state
@@ -964,6 +984,11 @@ int main(
 
   // build the Transformer via the model .bin file
   Transformer transformer;
+  memset(&transformer.config, 0, sizeof(transformer.config));
+  memset(&transformer.weights, 0, sizeof(transformer.weights));
+  memset(&transformer.qnt_weights, 0, sizeof(transformer.qnt_weights));
+  memset(&transformer.state, 0, sizeof(transformer.state));
+
   status = build_transformer(&transformer, checkpoint_path); cBYE(status);
   if ( (steps == 0) || (steps > transformer.config.seq_len) ) {
     steps = transformer.config.seq_len; // override to ~max length

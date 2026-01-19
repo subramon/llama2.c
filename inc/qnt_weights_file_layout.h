@@ -40,7 +40,7 @@ typedef struct {
     // =======================================================
     // [3] Normalization
     // attention_norm.weight: RMSNorm applied before the attention block.
-    uint8_t* qnt_rms_att_weight; size_t sz_qnt_rms_att;
+    uint8_t* qnt_rms_att_weight; size_t sz_qnt_rms_att_weight;
     // (layer, dim) rmsnorm weights
     float *offset_rms_att; size_t sz_offset_rms_att;
     float *delta_rms_att;  size_t sz_delta_rms_att;

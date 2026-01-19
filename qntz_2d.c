@@ -45,6 +45,7 @@ qntz_2d(
     }
     float offset = minval;
     float delta = (maxval - minval)/255; // TODO 255 or 256?
+    float range = maxval - minval;
     fwrite(&offset, sizeof(float), 1, ofp);
     fwrite(&delta,  sizeof(float), 1, dfp);
     //------------------------------------
@@ -52,7 +53,7 @@ qntz_2d(
     idx = bak_idx;
     int j = 0;
     for ( ; j < nC; j++ ) { 
-      uint8_t qval = (uint8_t)((fX[idx] - minval) * delta);
+      uint8_t qval = (uint8_t)((fX[idx] - minval) / range * 255);
       fwrite(&qval,  sizeof(uint8_t), 1, qfp);
       idx++;
     }

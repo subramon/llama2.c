@@ -49,13 +49,19 @@ qntz_3d(
       float delta = (maxval - minval)/255; // TODO 255 or 256?
       fwrite(&offset, sizeof(float), 1, ofp);
       fwrite(&delta,  sizeof(float), 1, dfp);
+      float range = maxval - minval;
       //------------------------------------
       // Start scanning line again and quantizing as you go 
       idx = bak_idx;
       int k = 0;
       for ( ; k < nD; k++ ) { 
-        uint8_t qval = (uint8_t)((fX[idx] - minval) * delta);
+        float f0 = fX[idx];
+        float f1 = f0 - minval;
+        float f2 = f1 / delta; 
+        uint8_t qval = (uint8_t)f2;
         fwrite(&qval,  sizeof(uint8_t), 1, qfp);
+        float f3 = ( qval * delta ) + offset;
+        // expect small difference between f0 and f3
         idx++;
       }
       // Pad for memory alignment 

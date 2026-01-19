@@ -2,7 +2,7 @@
 
 __attribute__((external_only))
 export void 
-dot_prod(
+dot_prod_qnt(
     uniform float offset,
     uniform float delta,
     __attribute__((aligned(BYTES_IN_REG))) uniform float x[], 

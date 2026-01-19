@@ -2,12 +2,15 @@
 #include <stdint.h> // for uint64_t
 extern uint64_t g_t_matmul; // for timing 
 extern uint64_t g_n_matmul; // for timing 
-#include "matmul.h"
+#include "matmul_qnt.h"
 void 
-matmul(
+matmul_qnt(
     float * restrict xout, 
     const float * const x, 
-    const float * const w, 
+    const float * const wf32, 
+    const uint8_t * const wui8, 
+    const float * const offset, 
+    const float * const delta, 
     int n, 
     int d
     ) 
@@ -18,9 +21,16 @@ matmul(
   uint64_t t = __rdtsc();
   for (i = 0; i < d; i++) {
     register float val = 0.0f;
-    register float *w_i = w + (i*n);
+    const uint8_t *w_i = wui8 + (i*n);
+    const float *wf32_i = wf32 + (i*n);
+    float offset_i = offset[i];
+    float delta_i  = delta[i];
     for (int j = 0; j < n; j++) {
-      val += w_i[j] * x[j];
+      float w_ij = offset_i + ( w_i[j] * delta_i );
+#ifdef DEBUG
+      // TODO Check difference between w_ij and wf32_i[j]
+#endif
+      val += w_ij * x[j];
     }
     xout[i] = val;
   }

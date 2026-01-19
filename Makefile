@@ -38,6 +38,7 @@ INCS += -I${RSUTILS_SRC_ROOT}/inc/
 ISPC_SRCS += ./ispc/rmsnorm.ispc 
 ISPC_SRCS += ./ispc/softmax.ispc 
 ISPC_SRCS += ./ispc/dot_prod.ispc 
+ISPC_SRCS += ./ispc/dot_prod_qnt.ispc 
 ISPC_SRCS += ./ispc/add_v.ispc 
 ISPC_SRCS += ./ispc/div_s.ispc 
 ISPC_SRCS += ./ispc/mul_v_add_s.ispc 
@@ -48,6 +49,7 @@ ISPC_SRCS += ./ispc/target_width.ispc
 
 SRCS += rmsnorm.c 
 SRCS += matmul.c 
+SRCS += matmul_qnt.c 
 SRCS += softmax.c 
 # TODO SRCS += orig_mmap_weights.c 
 SRCS += mmap_weights.c 
@@ -88,6 +90,9 @@ ispc/div_s.o :
 ispc/add_v.o : 
 	  ispc ${INCS} ${ISPC_FLAGS} ispc/add_v.ispc -o ispc/add_v.o 
 
+ispc/dot_prod_qnt.o : 
+	ispc ${INCS} ${ISPC_FLAGS} ispc/dot_prod_qnt.ispc -o ispc/dot_prod_qnt.o 
+
 ispc/dot_prod.o : 
 	ispc ${INCS} ${ISPC_FLAGS} ispc/dot_prod.ispc -o ispc/dot_prod.o 
 
@@ -109,6 +114,7 @@ run: run.o  ${OBJS}
 #TODO Delete prob_select below 
 run_ispc: run.o  ${ISPC_OBJS} \
 	matmul_ispc_wrap.o \
+	matmul_qnt_ispc_wrap.o \
 	dot_prod_256.o \
 	mmap_weights.o \
 	qnt_mmap_weights.o \
@@ -119,6 +125,7 @@ run_ispc: run.o  ${ISPC_OBJS} \
 	run_state.o 
 	$(CC) ${LNK_FLAGS} -o run_ispc run.o ${ISPC_OBJS} \
 	matmul_ispc_wrap.o \
+	matmul_qnt_ispc_wrap.o \
 	dot_prod_256.o \
 	mmap_weights.o \
 	qnt_mmap_weights.o \
