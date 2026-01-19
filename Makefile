@@ -51,6 +51,7 @@ SRCS += matmul.c
 SRCS += softmax.c 
 SRCS += orig_mmap_weights.c 
 SRCS += mmap_weights.c 
+SRCS += qnt_mmap_weights.c 
 SRCS += run_state.c 
 SRCS += rope.c 
 SRCS += dot_prod.c 
@@ -110,6 +111,7 @@ run_ispc: run.o  ${ISPC_OBJS} \
 	matmul_ispc_wrap.o \
 	dot_prod_256.o \
 	mmap_weights.o \
+	qnt_mmap_weights.o \
 	rope.o \
 	read_config.o \
 	argmax.o \
@@ -119,6 +121,7 @@ run_ispc: run.o  ${ISPC_OBJS} \
 	matmul_ispc_wrap.o \
 	dot_prod_256.o \
 	mmap_weights.o \
+	qnt_mmap_weights.o \
 	rope.o \
 	read_config.o \
 	argmax.o \

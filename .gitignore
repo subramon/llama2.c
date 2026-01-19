@@ -10,3 +10,4 @@ runq_ispc
 *.aux
 *.dvi
 cli_split_weights
+cli_qntz_weights

@@ -21,6 +21,7 @@
 #include "read_config.h"
 #include "softmax.h"
 #include "mmap_weights.h"
+#include "qnt_mmap_weights.h"
 #include "run_state.h"
 #include "rope.h"
 #include "dot_prod.h"
@@ -48,12 +49,14 @@ uint64_t g_t_prob_select;
 // -------------------------------------------------------------------
 // Transformer model
 #include "weights_file_layout.h"
+#include "qnt_weights_file_layout.h"
 // State
 #include "run_state.h"
 
 typedef struct {
     Config config; // the hyperparameters of the architecture (the blueprint)
     TransformerWeights weights; // the weights of the model
+    QntTransformerWeights qnt_weights; // the quantized weights of the model
     RunState state; // buffers for the "wave" of activations in the forward pass
 } Transformer;
 
@@ -61,7 +64,8 @@ static int
 read_checkpoint(
     const char * const checkpoint,  // file containing checkpoint 
     Config* ptr_config, 
-    TransformerWeights* ptr_weights
+    TransformerWeights* ptr_weights,
+    QntTransformerWeights* ptr_qnt_weights
     ) 
 {
   int status = 0; 
@@ -72,6 +76,7 @@ read_checkpoint(
   int shared_weights = ptr_config->vocab_size > 0 ? 1 : 0;
   ptr_config->vocab_size = abs(ptr_config->vocab_size);
   status = mmap_weights(ptr_config, ptr_weights); cBYE(status);
+  status = qnt_mmap_weights(ptr_qnt_weights); cBYE(status);
 BYE:
   return status;
 }
@@ -84,7 +89,8 @@ build_transformer(
 {
   int status = 0;
   // read in the Config and the Weights from the checkpoint
-  status = read_checkpoint(checkpoint_path, &t->config, &t->weights);
+  status = read_checkpoint(checkpoint_path, 
+      &(t->config), &(t->weights), &(t->qnt_weights));
   cBYE(status);
   // allocate the RunState buffers
   status = malloc_run_state(&t->state, &t->config); cBYE(status);
@@ -126,7 +132,6 @@ forward(
   int head_size = dim / p->n_heads;
   size_t ispc_dim = mcr_round_up(p->dim);
   size_t ispc_hidden_dim = mcr_round_up(p->hidden_dim);
-  size_t ispc_vocab_size = mcr_round_up(p->vocab_size);
   size_t ispc_seq_len = mcr_round_up(p->seq_len);
   size_t ispc_kv_dim = mcr_round_up(kv_dim);
   size_t ispc_head_size = mcr_round_up(head_size);
@@ -200,7 +205,7 @@ forward(
 
       // weighted sum of the values, store back into xb
       float* const xb = s->xb + h * head_size;
-      memset(xb, 0, ((size_t)(head_size * sizeof(float))));
+      memset(xb, 0, (size_t)(head_size * sizeof(float)));
       for (int t = 0; t <= pos; t++) {
         // get the value vector for this head and at this timestep
         float *valptr = mcr_3d_to_1d(s->vc, l, t, p->seq_len, ispc_kv_dim);
@@ -281,7 +286,7 @@ compare_tokens(
     const void *b
     ) 
 {
-  return strcmp(((TokenIndex*)a)->str, ((TokenIndex*)b)->str);
+  return strcmp(((const TokenIndex*)a)->str, ((const TokenIndex*)b)->str);
 }
 
 static void 
@@ -327,7 +332,7 @@ free_tokenizer(
   free(t->sorted_vocab);
 }
 
-char* 
+static char* 
 decode(
     Tokenizer* t, 
     int prev_token, 
@@ -346,25 +351,34 @@ decode(
   return piece;
 }
 
-void safe_printf(char *piece) {
-    // piece might be a raw byte token, and we only want to print printable chars or whitespace
-    // because some of the other bytes can be various control codes, backspace, etc.
-    if (piece == NULL) { return; }
-    if (piece[0] == '\0') { return; }
-    if (piece[1] == '\0') {
-        unsigned char byte_val = piece[0];
-        if (!(isprint(byte_val) || isspace(byte_val))) {
-            return; // bad byte, don't print it
-        }
+static void safe_printf(
+    char *piece
+    ) 
+{
+  // piece might be a raw byte token, and we only want to print printable chars or whitespace
+  // because some of the other bytes can be various control codes, backspace, etc.
+  if (piece == NULL) { return; }
+  if (piece[0] == '\0') { return; }
+  if (piece[1] == '\0') {
+    unsigned char byte_val = piece[0];
+    if (!(isprint(byte_val) || isspace(byte_val))) {
+      return; // bad byte, don't print it
     }
-    printf("%s", piece);
+  }
+  printf("%s", piece);
 }
 
-int str_lookup(char *str, TokenIndex *sorted_vocab, int vocab_size) {
-    // efficiently find the perfect match for str in vocab, return its index or -1 if not found
-    TokenIndex tok = { .str = str }; // acts as the key to search for
-    TokenIndex *res = bsearch(&tok, sorted_vocab, vocab_size, sizeof(TokenIndex), compare_tokens);
-    return res != NULL ? res->id : -1;
+static int 
+str_lookup(
+    const char *str, 
+    TokenIndex *sorted_vocab, 
+    int vocab_size
+    ) 
+{
+  // efficiently find the perfect match for str in vocab, return its index or -1 if not found
+  TokenIndex tok = { .str = str }; // acts as the key to search for
+  TokenIndex *res = bsearch(&tok, sorted_vocab, vocab_size, sizeof(TokenIndex), compare_tokens);
+  return res != NULL ? res->id : -1;
 }
 
 int
@@ -396,6 +410,7 @@ encode(
   // create a temporary buffer that will store merge candidates of always two consecutive tokens
   // *2 for concat, +1 for null terminator +2 for UTF8 (in case max_token_length is 1)
   str_buffer = malloc((t->max_token_length*2 +1 +2) * sizeof(char));
+  return_if_malloc_failed(str_buffer);
   size_t str_len = 0;
 
   // start at 0 tokens
@@ -455,7 +470,7 @@ encode(
       // byte_fallback encoding: just encode each byte as a token
       // +3 is here because the first 3 vocab elements are <unk>, <s>, </s>
       // so the individual bytes only start at index 3
-      for (int i=0; i < str_len; i++) {
+      for ( size_t i=0; i < str_len; i++) {
         tokens[(*n_tokens)++] = (unsigned char)str_buffer[i] + 3;
       }
     }
@@ -518,7 +533,7 @@ typedef struct {
     unsigned long long rng_state;
 } Sampler;
 
-int 
+static int 
 compare(
     const void* a, 
     const void* b
@@ -531,50 +546,57 @@ compare(
   return 0;
 }
 
-int sample_topp(float* probabilities, int n, float topp, ProbIndex* probindex, float coin) {
-    // top-p sampling (or "nucleus sampling") samples from the smallest set of
-    // tokens that exceed probability topp. This way we never sample tokens that
-    // have very low probabilities and are less likely to go "off the rails".
-    // coin is a random number in [0, 1), usually from random_f32()
+static int sample_topp(
+    float* probabilities, 
+    int n, 
+    float topp, 
+    ProbIndex* probindex, 
+    float coin
+    ) 
+{
+  // top-p sampling (or "nucleus sampling") samples from the smallest set of
+  // tokens that exceed probability topp. This way we never sample tokens that
+  // have very low probabilities and are less likely to go "off the rails".
+  // coin is a random number in [0, 1), usually from random_f32()
 
-    int n0 = 0;
-    // quicksort indices in descending order of probabilities
-    // values smaller than (1 - topp) / (n - 1) cannot be part of the result
-    // so for efficiency we crop these out as candidates before sorting
-    const float cutoff = (1.0f - topp) / (n - 1);
-    for (int i = 0; i < n; i++) {
-        if (probabilities[i] >= cutoff) {
-            probindex[n0].index = i;
-            probindex[n0].prob = probabilities[i];
-            n0++;
-        }
+  int n0 = 0;
+  // quicksort indices in descending order of probabilities
+  // values smaller than (1 - topp) / (n - 1) cannot be part of the result
+  // so for efficiency we crop these out as candidates before sorting
+  const float cutoff = (1.0f - topp) / ((float)n - 1.0f);
+  for (int i = 0; i < n; i++) {
+    if (probabilities[i] >= cutoff) {
+      probindex[n0].index = i;
+      probindex[n0].prob = probabilities[i];
+      n0++;
     }
-    qsort(probindex, n0, sizeof(ProbIndex), compare);
+  }
+  qsort(probindex, (size_t)n0, sizeof(ProbIndex), compare);
 
-    // truncate the list where cumulative probability exceeds topp
-    float cumulative_prob = 0.0f;
-    int last_idx = n0 - 1; // in case of rounding errors consider all elements
-    for (int i = 0; i < n0; i++) {
-        cumulative_prob += probindex[i].prob;
-        if (cumulative_prob > topp) {
-            last_idx = i;
-            break; // we've exceeded topp by including last_idx
-        }
+  // truncate the list where cumulative probability exceeds topp
+  float cumulative_prob = 0.0f;
+  int last_idx = n0 - 1; // in case of rounding errors consider all elements
+  for (int i = 0; i < n0; i++) {
+    cumulative_prob += probindex[i].prob;
+    if (cumulative_prob > topp) {
+      last_idx = i;
+      break; // we've exceeded topp by including last_idx
     }
+  }
 
-    // sample from the truncated list
-    float r = coin * cumulative_prob;
-    float cdf = 0.0f;
-    for (int i = 0; i <= last_idx; i++) {
-        cdf += probindex[i].prob;
-        if (r < cdf) {
-            return probindex[i].index;
-        }
+  // sample from the truncated list
+  float r = coin * cumulative_prob;
+  float cdf = 0.0f;
+  for (int i = 0; i <= last_idx; i++) {
+    cdf += probindex[i].prob;
+    if (r < cdf) {
+      return probindex[i].index;
     }
-    return probindex[last_idx].index; // in case of rounding errors
+  }
+  return probindex[last_idx].index; // in case of rounding errors
 }
 
-void 
+static void 
 build_sampler(
     Sampler* sampler, 
     int vocab_size, 
@@ -588,25 +610,35 @@ build_sampler(
   sampler->topp = topp;
   sampler->rng_state = rng_seed;
   // buffer only used with nucleus sampling; may not need but it's ~small
-  sampler->probindex = malloc(sampler->vocab_size * sizeof(ProbIndex));
+  sampler->probindex = malloc((size_t)sampler->vocab_size * sizeof(ProbIndex));
 }
 
-void free_sampler(Sampler* sampler) {
-    free(sampler->probindex);
+static void free_sampler(
+    Sampler* sampler
+    ) 
+{
+  free(sampler->probindex);
 }
 
-unsigned int random_u32(unsigned long long *state) {
-    // xorshift rng: https://en.wikipedia.org/wiki/Xorshift#xorshift.2A
-    *state ^= *state >> 12;
-    *state ^= *state << 25;
-    *state ^= *state >> 27;
-    return (*state * 0x2545F4914F6CDD1Dull) >> 32;
+static unsigned int 
+random_u32(
+    unsigned long long *state
+    ) 
+{
+  // xorshift rng: https://en.wikipedia.org/wiki/Xorshift#xorshift.2A
+  *state ^= *state >> 12;
+  *state ^= *state << 25;
+  *state ^= *state >> 27;
+  return (*state * 0x2545F4914F6CDD1Dull) >> 32;
 }
-float random_f32(unsigned long long *state) { // random float32 in [0,1)
-    return (random_u32(state) >> 8) / 16777216.0f;
+static float random_f32(
+    unsigned long long *state
+    ) 
+{ // random float32 in [0,1)
+  return ((float)(random_u32(state) >> 8)) / 16777216.0f;
 }
 
-int 
+static int 
 sample(
     Sampler* sampler, 
     float* logits
@@ -724,7 +756,7 @@ BYE:
   return status;
 }
 
-void 
+static void 
 read_stdin(
     const char* guide, 
     char* buffer, 
@@ -733,7 +765,7 @@ read_stdin(
 {
   // read a line from stdin, up to but not including \n
   printf("%s", guide);
-  if (fgets(buffer, bufsize, stdin) != NULL) {
+  if (fgets(buffer, (int)bufsize, stdin) != NULL) {
     size_t len = strlen(buffer);
     if (len > 0 && buffer[len - 1] == '\n') {
       buffer[len - 1] = '\0'; // strip newline
@@ -775,7 +807,6 @@ chat(
   int8_t user_turn = 1; // user starts
   int next;        // will store the next token in the sequence
   int token;       // stores the current token to feed into the transformer
-  int prev_token;
   int pos = 0;     // position in the sequence
   while (pos < steps) {
 
