@@ -1,0 +1,152 @@
+\documentclass[letterpaper,12pt]{article}
+\usepackage{times}
+\usepackage{helvet}
+\usepackage{amsmath}
+\usepackage{courier}
+\usepackage{fancyheadings}
+\usepackage{hyperref}
+\usepackage{xcolor}
+\pagestyle{fancy}
+\usepackage{graphicx}
+\usepackage{verbatim}
+\setlength\textwidth{6.5in}
+\setlength\textheight{8.5in}
+\newcommand{\ISPC}{{\tt ispc}}
+\newcommand{\TBC}{\framebox{\textbf{TO BE COMPLETED}}}
+\newtheorem{assumption}{Assumption}
+\newcommand{\be}{\begin{enumerate}}
+\newcommand{\ee}{\end{enumerate}}
+\newcommand{\bi}{\begin{itemize}}
+\newcommand{\ei}{\end{itemize}}
+\newcommand{\bd}{\begin{description}}
+\newcommand{\ed}{\end{description}}
+\newtheorem{notation}{Notation}
+\begin{document}
+\title{The Case for Mechanical Empathy}
+\author{Ramesh Subramonian }
+\maketitle
+\thispagestyle{fancy}
+\lhead{}
+\chead{}
+\rhead{}
+% \lfoot{{\small Decision Sciences Team}}
+\cfoot{}
+\rfoot{{\small \thepage}}
+
+\begin{abstract}
+
+  The article documents the author's experience playing with Andrei
+  Karpathy's excellent one file implementation of Llama-2. The TL;DR
+  is that there is an interesting spot on the performance-programming
+  effort continuum achieved by collaborating with the compiler. In
+  particular, porting selected portions of Karpathy's code to \ISPC\
+  yields a 2X performance gain.
+
+
+\end{abstract}
+
+\section{Introduction}
+
+Karpathy's llama2.c project ``inferences Llama-2 with one simple
+700-line C file (run.c).''  The code is well-written --- as the author
+points out, it has been written with exposition and ease of
+understanding in mind, not necessarily performance.
+
+Nevertheless, we took this as a starting point to see how we could improve
+performance without sacrificing readability. For this purpose, 
+we ported selected portion of the code using \ISPC\ --- Intel®
+Implicit SPMD Program Compiler. For those unfamiliar with this excellent 
+project, ``\ISPC\ is
+a compiler for a variant of the C programming language, with extensions for
+``single program, multiple data'' (SPMD) programming. ''
+
+
+\section{Modifications to Karpathy's code}
+\subsection{Cosmetic changes}
+The cosmetic changes fall into the following categories
+\be
+\item We broke out several of the compute intensive functions
+  into separate files. Localizing changes helped 
+  tune and test smaller pieces without destabilizing the code.
+\item Indentation styles can lead to  religious wars. I chose to use my own
+  style
+\item The command line parameter {\tt -q}  was added to indicate whether 
+  weights had been quantized.
+  \ee
+
+\subsection{Substantive changes}
+The most substantive change is covered in Section~\ref{ISPC_ports}
+
+\subsubsection{Hint, hint, \ldots}
+
+We provided as much guidance to the compiler as possible. For example,
+\be
+\item we used the {\tt restrict} type qualifier wherever possible. ``By adding
+  this type qualifier, a programmer hints to the compiler that for the lifetime
+  of the pointer, no other pointer will be used to access the object to which it
+  points. This allows the compiler to make optimizations (for example,
+  vectorization) that would not otherwise have been
+  possible.''\footnote{\url{https://en.wikipedia.org/wiki/Restrict}}
+\item we used the \verb+__attribute__(())+ syntax in \ISPC\ for variable and function
+  declarations, thereby eliminating extra code and letting the compiler know
+  about memory alignment
+\item we used the {\tt assume()} mechanism in \ISPC\ where possible e.g., letting the
+  compiler know that we have padded vectors so that they are multiples of 
+  the
+  lane width of the vector register.
+  \ee
+
+\subsubsection{Aligning memory}
+
+To support vector instructions, we aligned memory on 32-byte boundaries.
+\be
+\item Karpathy {\tt mmap}s a single binary weights file for all the different
+  kinds of weights. In contrast, we broke the single weights file into twelve separate files, 
+one for each of the weight classes, padding the vectors to be multiples of the
+vector register width. For example, a 2D array with 2 rows and 3 columns such as 
+\(
+\begin{bmatrix}
+  1 & 2 & 3 \\ 
+  10 & 20 & 30 \\ 
+\end{bmatrix}
+\)
+is laid out in a linear array as shown below when padded to multiples of 4 
+\begin{center}
+\(\{1, 2, 3, 0, 10, 20, 30, 0\}\)
+\end{center}
+\item We used {\tt posix\_memalign()} instead of
+{\tt malloc()} to ensure alignment. 
+\item We padded all vectors, increasing memory usage somewhat, but ensuring that
+  all vectors are properly aligned.
+\ee
+
+
+\subsubsection{Use of OpenMP}
+
+\subsubsection{Quantization}
+
+Quantization reduces memory pressure. In particular, 
+we chose to quantize {\tt fp32} as {\tt uint8\_t}. In doing so,
+each vector within a tensor was scaled independently. This means that a vector
+of floating point numbers of the form 
+\begin{center}
+  \{  \(  f_1, f_2, \ldots f_N \}\)
+\end{center}
+would be represented as unsigned 8-bit integers with two additional pieces of
+information 
+\begin{center}
+  \(\mathrm{min}(x), \mathrm{max}(x), \{u_1, u_2, \ldots u_N\} \)
+\end{center}
+
+
+\subsection{Nitpicks}
+
+\be
+\item Karpathy claims that 
+  `` we use {\tt calloc()} instead of {\tt malloc()} to keep valgrind happy''. I found no evidence to suport that claim.
+\ee
+
+\section{ISPC Ports}
+\label{ISPC_ports}
+
+\end{document}
