@@ -1,5 +1,6 @@
 /* Inference for Llama-2 Transformer model in pure C */
 #include <stdio.h>
+#include <stdbool.h>
 #include <omp.h>
 #include <stdlib.h>
 #include <stdint.h>
@@ -33,6 +34,7 @@
 #include "prob_select.h"
 #include "target_width.h"
 
+bool g_quantize; 
 uint64_t g_t_matmul;
 uint64_t g_n_matmul;
 uint64_t g_t_omp_loop;
@@ -76,7 +78,9 @@ read_checkpoint(
   int shared_weights = ptr_config->vocab_size > 0 ? 1 : 0;
   ptr_config->vocab_size = abs(ptr_config->vocab_size);
   status = mmap_weights(ptr_weights); cBYE(status);
-  status = qnt_mmap_weights(ptr_qnt_weights); cBYE(status);
+  if ( g_quantize ) { 
+    status = qnt_mmap_weights(ptr_qnt_weights); cBYE(status);
+  }
 BYE:
   return status;
 }
@@ -156,33 +160,34 @@ forward(
     // key_ptr and val_ptr point to appropriate location in kv cache
     float *key_ptr = mcr_3d_to_1d(s->kc, l, pos, p->seq_len, ispc_kv_dim);
     float *val_ptr = mcr_3d_to_1d(s->vc, l, pos, p->seq_len, ispc_kv_dim);
-    float * const w_q = mcr_3d_to_2d(w->wq, l, dim, ispc_dim);
-    float * const w_k = mcr_3d_to_2d(w->wk, l, dim, ispc_kv_dim);
-    float * const w_v = mcr_3d_to_2d(w->wv, l, dim, ispc_kv_dim);
 
-#define XXXX
-#ifdef XXXX
-    float * const qw_q = mcr_3d_to_2d(qw->qnt_wq, l, dim, ispc_dim);
-    float * const qw_k = mcr_3d_to_2d(qw->qnt_wk, l, dim, ispc_kv_dim);
-    float * const qw_v = mcr_3d_to_2d(qw->qnt_wv, l, dim, ispc_kv_dim);
+      float * const w_q = mcr_3d_to_2d(w->wq, l, dim, ispc_dim);
+      float * const w_k = mcr_3d_to_2d(w->wk, l, dim, ispc_kv_dim);
+      float * const w_v = mcr_3d_to_2d(w->wv, l, dim, ispc_kv_dim);
 
-    float * const qw_q_off = mcr_2d_to_1d(qw->offset_wq, l, ispc_dim);
-    float * const qw_k_off = mcr_2d_to_1d(qw->offset_wk, l, ispc_dim);
-    float * const qw_v_off = mcr_2d_to_1d(qw->offset_wv, l, ispc_dim);
+    if ( g_quantize ) { 
+      float * const qw_q = mcr_3d_to_2d(qw->qnt_wq, l, dim, ispc_dim);
+      float * const qw_k = mcr_3d_to_2d(qw->qnt_wk, l, dim, ispc_kv_dim);
+      float * const qw_v = mcr_3d_to_2d(qw->qnt_wv, l, dim, ispc_kv_dim);
 
-    float * const qw_q_del = mcr_2d_to_1d(qw->delta_wq, l, ispc_dim);
-    float * const qw_k_del = mcr_2d_to_1d(qw->delta_wk, l, ispc_dim);
-    float * const qw_v_del = mcr_2d_to_1d(qw->delta_wv, l, ispc_dim);
-    // qkv matmuls for this position
-    matmul_qnt(s->q,    s->xb, w_q, qw_q, qw_q_off, qw_q_del, dim, dim);
-    matmul_qnt(key_ptr, s->xb, w_k, qw_k, qw_k_off, qw_k_del, dim, kv_dim);
-    matmul_qnt(val_ptr, s->xb, w_v, qw_v, qw_v_off, qw_v_del, dim, kv_dim);
-#else
-    // qkv matmuls for this position
-    matmul(s->q,    s->xb, w_q, dim, dim);
-    matmul(key_ptr, s->xb, w_k, dim, kv_dim);
-    matmul(val_ptr, s->xb, w_v, dim, kv_dim);
-#endif
+      float * const qw_q_off = mcr_2d_to_1d(qw->offset_wq, l, ispc_dim);
+      float * const qw_k_off = mcr_2d_to_1d(qw->offset_wk, l, ispc_dim);
+      float * const qw_v_off = mcr_2d_to_1d(qw->offset_wv, l, ispc_dim);
+
+      float * const qw_q_del = mcr_2d_to_1d(qw->delta_wq, l, ispc_dim);
+      float * const qw_k_del = mcr_2d_to_1d(qw->delta_wk, l, ispc_dim);
+      float * const qw_v_del = mcr_2d_to_1d(qw->delta_wv, l, ispc_dim);
+      // qkv matmuls for this position
+      matmul_qnt(s->q,    s->xb, w_q, qw_q, qw_q_off, qw_q_del, dim, dim);
+      matmul_qnt(key_ptr, s->xb, w_k, qw_k, qw_k_off, qw_k_del, dim, kv_dim);
+      matmul_qnt(val_ptr, s->xb, w_v, qw_v, qw_v_off, qw_v_del, dim, kv_dim);
+    }
+    else {
+      // qkv matmuls for this position
+      matmul(s->q,    s->xb, w_q, dim, dim);
+      matmul(key_ptr, s->xb, w_k, dim, kv_dim);
+      matmul(val_ptr, s->xb, w_v, dim, kv_dim);
+    }
 
     // RoPE relative positional encoding: 
     // complex-valued rotate q and k in each head
@@ -927,6 +932,7 @@ int main(
     ) 
 {
   int status = 0;
+  g_quantize = false;
   g_t_matmul = 0;
   g_t_rmsnorm = 0;
   g_t_softmax = 0;
@@ -973,6 +979,17 @@ int main(
     else if (argv[i][1] == 'z') { tokenizer_path = argv[i + 1]; }
     else if (argv[i][1] == 'm') { mode = argv[i + 1]; }
     else if (argv[i][1] == 'y') { system_prompt = argv[i + 1]; }
+    else if (argv[i][1] == 'q') { // for quantization
+      if ( strcasecmp(argv[i+1], "true") == 0 ) { 
+        g_quantize = true;
+      }
+      else if ( strcasecmp(argv[i+1], "false") == 0 ) { 
+        g_quantize = false;
+      }
+      else {
+        go_BYE(-1);
+      }
+    }
     else { error_usage(); }
   }
 

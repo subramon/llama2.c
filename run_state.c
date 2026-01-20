@@ -33,42 +33,53 @@ malloc_run_state(
   status = posix_memalign((void **)&(s->x), ALIGN, 
       (ispc_dim * sizeof(float)));
   cBYE(status);
+  memset(s->x, 0, (ispc_dim * sizeof(float)));
 
   status = posix_memalign((void **)&(s->xb), ALIGN, 
       (ispc_dim * sizeof(float)));
   cBYE(status);
+  memset(s->xb, 0, (ispc_dim * sizeof(float)));
 
   status = posix_memalign((void **)&(s->xb2), ALIGN, 
       (ispc_dim * sizeof(float)));
   cBYE(status);
+  memset(s->xb2, 0, (ispc_dim * sizeof(float)));
+
 
   sz = (ispc_hidden_dim * sizeof(float));
   status = posix_memalign((void **)&(s->hb), ALIGN, sz);
   cBYE(status);
+  memset(s->hb, 0, sz);
 
   sz = (ispc_hidden_dim * sizeof(float));
   status = posix_memalign((void **)&(s->hb2), ALIGN, sz);
   cBYE(status);
+  memset(s->hb2, 0, sz);
 
   sz = (((size_t)p->n_heads * ispc_head_size) * sizeof(float));
   status = posix_memalign((void **)&(s->q), ALIGN, sz);
   cBYE(status);
+  memset(s->q, 0, sz);
 
   sz = (((size_t)p->n_layers * (size_t)p->seq_len * ispc_kv_dim) * sizeof(float));
   status = posix_memalign((void **)&(s->kc), ALIGN, sz);
   cBYE(status);
+  memset(s->kc, 0, sz);
 
   sz = (((size_t)p->n_layers * (size_t)p->seq_len * ispc_kv_dim) * sizeof(float));
   status = posix_memalign((void **)&(s->vc), ALIGN, sz);
   cBYE(status);
+  memset(s->vc, 0, sz);
 
   sz = (((size_t)p->n_heads * ispc_seq_len) * sizeof(float));
   status = posix_memalign((void **)&(s->att), ALIGN, sz); 
   cBYE(status);
+  memset(s->att, 0, sz);
 
   sz = (ispc_vocab_size * sizeof(float));
   status = posix_memalign((void **)&(s->logits), ALIGN, sz);
   cBYE(status);
+  memset(s->logits, 0, sz);
 
   // ensure all mallocs went fine
   if (!s->x || !s->xb || !s->xb2 || !s->hb || !s->hb2 || !s->q
