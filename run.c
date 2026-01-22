@@ -192,19 +192,17 @@ forward(
       matmul_prefetch(s->q,    s->xb, w_q, dim, dim);
       matmul_prefetch(s->q,    s->xb, w_q, dim, dim);
       matmul_prefetch(key_ptr, s->xb, w_k, dim, kv_dim);
-      uint64_t t0 = __rdtsc();
       */
+      uint64_t t0 = __rdtsc();
 
       matmul(s->q,    s->xb, w_q, dim, dim);
       matmul(key_ptr, s->xb, w_k, dim, kv_dim);
       matmul(val_ptr, s->xb, w_v, dim, kv_dim);
-/*
       g_n_expt += 
         2*dim*dim + 
         2*dim*kv_dim + 
         2*dim*kv_dim;
       g_t_expt += __rdtsc() - t0;
-      */
     }
 
     // RoPE relative positional encoding: 
@@ -980,7 +978,7 @@ int main(
     if ( FLOATS_IN_REG != x ) { go_BYE(-1); }
     if ( BYTES_IN_REG != (sizeof(float) * FLOATS_IN_REG) ) { go_BYE(-1); }
   }
-  omp_set_num_threads(18);
+  omp_set_num_threads(16);
   printf("nP = %d\n", omp_get_num_procs());
 
   // poor man's C argparse so we can override the defaults above from the command line
