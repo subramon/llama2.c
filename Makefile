@@ -8,7 +8,7 @@ LNK_FLAGS := -flto
 # LNK_FLAGS += -pg 
 
 # CFLAGS := -g -O0
-CFLAGS := -O3 -Ofast
+CFLAGS := -O3 -Ofast -march=native
 # CFLAGS += -pg # for profiling
 # CFLAGS += -DDEBUG
 CFLAGS += -flto # for Link Time Optimization 
@@ -105,8 +105,8 @@ ispc/softmax.o :
 ispc/swiglu.o : 
 	  ispc ${INCS} ${ISPC_FLAGS} ispc/swiglu.ispc -o ispc/swiglu.o 
 
-run: run.o  ${OBJS}
-	$(CC) -o run run.o ${OBJS}  \
+run: run.o  ${OBJS} matmul_prefetch.o 
+	$(CC) -o run run.o ${OBJS}   matmul_prefetch.o \
 	${RSUTILS_SRC_ROOT}/src/librsutils.so \
 	-lm -lgomp
 
@@ -114,6 +114,7 @@ run: run.o  ${OBJS}
 #TODO Delete prob_select below 
 run_ispc: run.o  ${ISPC_OBJS} \
 	matmul_ispc_wrap.o \
+	matmul_prefetch.o \
 	matmul_qnt_ispc_wrap.o \
 	dot_prod_256.o \
 	mmap_weights.o \
@@ -125,6 +126,7 @@ run_ispc: run.o  ${ISPC_OBJS} \
 	run_state.o 
 	$(CC) ${LNK_FLAGS} -o run_ispc run.o ${ISPC_OBJS} \
 	matmul_ispc_wrap.o \
+	matmul_prefetch.o \
 	matmul_qnt_ispc_wrap.o \
 	dot_prod_256.o \
 	mmap_weights.o \

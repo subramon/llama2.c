@@ -17,14 +17,14 @@ matmul(
 {
   uint64_t t = __rdtsc();
   // W (d,n) @ x (n,) -> xout (d,)
-#pragma omp parallel for 
-  for (  int i  = 0; i < d; i++) {
-    const float * const w_i = w + (i*n);
-    // __builtin_prefetch(w_i + n, 0); slows things down, hence commented
+#pragma omp parallel for schedule(static, 8)
+  for ( register int i  = 0; i < d; i++) {
+    register const float * const w_i = w + (i*n);
+    // __builtin_prefetch(w_i + n, 0); 
     dot_prod(x, w_i, n, &(xout[i]));
-    // Strangely, following was waaaay slower.
+    // No major improvement seen with following:
     // xout[i] = dot_product_fma_avx2(x, w_i, n);
   }
   g_t_matmul += (__rdtsc() - t);
-  g_n_matmul += d * n * 2; 
+  g_n_matmul += (uint64_t)(d * n * 2); 
 }

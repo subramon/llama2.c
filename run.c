@@ -35,6 +35,10 @@
 #include "target_width.h"
 
 bool g_quantize; 
+uint64_t g_t_prefetch;
+uint64_t g_n_prefetch;
+uint64_t g_t_expt;
+uint64_t g_n_expt;
 uint64_t g_t_matmul;
 uint64_t g_n_matmul;
 uint64_t g_t_omp_loop;
@@ -184,9 +188,23 @@ forward(
     }
     else {
       // qkv matmuls for this position
+      /* EXPERIMENTAL 
+      matmul_prefetch(s->q,    s->xb, w_q, dim, dim);
+      matmul_prefetch(s->q,    s->xb, w_q, dim, dim);
+      matmul_prefetch(key_ptr, s->xb, w_k, dim, kv_dim);
+      uint64_t t0 = __rdtsc();
+      */
+
       matmul(s->q,    s->xb, w_q, dim, dim);
       matmul(key_ptr, s->xb, w_k, dim, kv_dim);
       matmul(val_ptr, s->xb, w_v, dim, kv_dim);
+/*
+      g_n_expt += 
+        2*dim*dim + 
+        2*dim*kv_dim + 
+        2*dim*kv_dim;
+      g_t_expt += __rdtsc() - t0;
+      */
     }
 
     // RoPE relative positional encoding: 
@@ -201,7 +219,7 @@ forward(
     // STRANGE: Slows it down for gcc but not for ISPC. Puzzling...
     // However, in one simple case, speedup was only 1.5x
     // I don't think there is enough work to justify overhead of omp
-// #pragma omp parallel for schedule(static, 1)
+#pragma omp parallel for 
     for ( int h = 0; h < p->n_heads; h++) {
       // get the query vector for this head
       const float* const q_h = mcr_2d_to_1d(s->q, h, ispc_head_size); 
@@ -962,6 +980,8 @@ int main(
     if ( FLOATS_IN_REG != x ) { go_BYE(-1); }
     if ( BYTES_IN_REG != (sizeof(float) * FLOATS_IN_REG) ) { go_BYE(-1); }
   }
+  omp_set_num_threads(18);
+  printf("nP = %d\n", omp_get_num_procs());
 
   // poor man's C argparse so we can override the defaults above from the command line
   if (argc >= 2) { checkpoint_path = argv[1]; } else { error_usage(); }
@@ -1025,10 +1045,21 @@ int main(
     status = generate(&transformer, &tokenizer, &sampler, prompt, steps);
     uint64_t t2 = __rdtsc();
     printf("Total  clocks   = %" PRIu64 "\n", t2 -t1);
+
+    printf("expt   clocks   = %" PRIu64 "\n", g_t_expt); 
+    printf("expt   flops    = %" PRIu64 "\n", g_n_expt); 
+    printf("expt   Gflops/s = %lf\n", g_n_expt*5.1/g_t_expt);
+
     printf("matmul clocks   = %" PRIu64 "\n", g_t_matmul); 
     printf("matmul flops    = %" PRIu64 "\n", g_n_matmul); 
+    printf("matmul Gflops/s = %lf\n", g_n_matmul*5.1/g_t_matmul);
+
     printf("omp    clocks   = %" PRIu64 "\n", g_t_omp_loop); 
     printf("omp    loops    = %" PRIu64 "\n", g_n_omp_loop); 
+
+    printf("prefetch    clocks   = %" PRIu64 "\n", g_t_prefetch); 
+    printf("prefetch    calls    = %" PRIu64 "\n", g_n_prefetch); 
+
     printf("dot_prod clocks = %" PRIu64 "\n", g_t_dot_prod); 
   } 
   else if (strcmp(mode, "chat") == 0) {

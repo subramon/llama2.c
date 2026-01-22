@@ -16,8 +16,8 @@ dot_prod_qnt(
   assume(((uniform uint64)((void*)y) & (32 * TARGET_WIDTH)-1) == 0);
   foreach ( i = 0 ... n ) { 
     varying float y_i = (y[i] * delta) + offset;
-    // prefetch_l1(&(x[i+32]));
-    // prefetch_l1(&(y[i+32]));
+    // prefetch_l1(&(x[i+32])); // does not help
+    // prefetch_l1(&(y[i+32])); // does not help
     sum += x[i] * y_i;
   }
   rslt[0] = reduce_add(sum);

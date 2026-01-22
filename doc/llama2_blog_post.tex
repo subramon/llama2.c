@@ -59,7 +59,9 @@ Implicit SPMD Program Compiler. For those unfamiliar with this excellent
 project, ``\ISPC\ is
 a compiler for a variant of the C programming language, with extensions for
 ``single program, multiple data'' (SPMD) programming. ''
-
+The documentation and tutorials provided by the ISPC authors is excellent. I
+will not repeat that here, referring the user to \url{https://ispc.github.io}
+instead. 
 
 \section{Modifications to Karpathy's code}
 \subsection{Cosmetic changes}
@@ -146,7 +148,78 @@ information
   `` we use {\tt calloc()} instead of {\tt malloc()} to keep valgrind happy''. I found no evidence to suport that claim.
 \ee
 
+
+\subsection{Quantization}
+
+Karpathy chose to support quantization by writing
+a separate {\tt runq.c} file. We felt that there was sufficient commonality
+between the original and the quantized version that  a separate implementation
+was not justified. Our approach was 
+\be
+\item write a pre-processing utility to create quantized weights and scales.
+\item memory map the quantized weights. For debugging purposes (not for
+  production), the original weights are also memory mapped so that we can assess
+  the lossiness of the compression
+\item restrict the quantization to the larger weight classes, not the smaller
+  ones 
+\item Since the {\tt matmul()} function consumes most of the time, 
+  restrict the changes to that function.
+  In particular, the only change made is to the dot product function called from
+  {\tt matmul()} where the lines shown in red are inserted. Note that the
+  signature of the calling function also needed to change so that it had access
+  to the scaling values of {\tt offset} and {\tt delta}.
+
+  \begin{tabbing}\hspace*{0.25in} \= \kill
+    {\bf export void} dot\_prod\_qnt( \+  \\
+    \textcolor{red}{uniform float offset, uniform float delta,} \\
+    uniform float x[], uniform uint8 y[], uniform int n, uniform float rslt[] \-
+    \\
+    ) \\
+
+    {\bf foreach}  ( i = 0 \ldots n ) \{ \+ \\
+     \textcolor{red}{{\bf varying float} y\_i = (y[i] * delta) + offset;} \\
+    sum += x[i] * y\_i; \- \\ 
+  \} \\
+    rslt[0] = sum
+  \end{tabbing}
+
+\item Instead of using integer arithmetic on quantized values, we used floating
+  point arithmetic after converting {\tt unit32\_t} back to {\tt float} on the
+  fly.
+  \ee
+
 \section{ISPC Ports}
 \label{ISPC_ports}
+
+\section{Performance Results}
+
+The hardware used for benchmarking was inspired by DHH's blog post
+\url{https://world.hey.com/dhh/it-s-a-beelink-baby-243fdaf1}. It was a 
+Beelink SEi14 Mini PC, powered by Intel Ultra 9 185H (up to 5.1GHz) 16C/22T, Mini Computer
+with 64GB DDR5 at 5600MHz.
+
+We used the same seed and the same prompt on the {\tt stories42M.bin} 
+data set to generate a mini-story. Results are reported by
+averaging over  20 runs after discarding the top 2 and the bottom 2 results.
+
+We used {\tt gcc} for both versions, with flags including {\tt -O3 -Ofast -flto}.
+For \ISPC, compiler options included
+\begin{verbatim}
+--addressing=32 --opt=fast-math 
+--math-lib=fast --opt=force-aligned-memory
+\end{verbatim}
+
+Using Karpathy's code, it runs at XXX tokens/second. 
+Our code, using ISPC, runs at YYY tokens/second. 
+
+
+\section{Conclusion}
+
+
+\subsection{Acknowledgements}
+
+Thanks to Moh Haghighat for pointing me to ISPC in the first place. 
+Many thanks to two excellent managers, Luis Stevens and Subbu Iyer, who
+encouraged my dabbling with ISPC. 
 
 \end{document}

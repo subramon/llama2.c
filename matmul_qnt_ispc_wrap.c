@@ -20,9 +20,9 @@ matmul_qnt(
   uint64_t t = __rdtsc();
   // W (d,n) @ x (n,) -> xout (d,)
 #pragma omp parallel for 
-  for (  int i  = 0; i < d; i++) {
+  for ( register int i  = 0; i < d; i++) {
     const uint8_t * const wui8_i = wui8 + (i*n);
-    const float * const wf32_i = wf32 + (i*n);
+    const float * const wf32_i = wf32 + (i*n); // for debugging
     float offset_i = offset[i];
     float delta_i  = delta[i];
     // __builtin_prefetch(w_i + n, 0); slows things down, hence commented
