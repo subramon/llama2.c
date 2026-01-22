@@ -165,9 +165,9 @@ forward(
     float *key_ptr = mcr_3d_to_1d(s->kc, l, pos, p->seq_len, ispc_kv_dim);
     float *val_ptr = mcr_3d_to_1d(s->vc, l, pos, p->seq_len, ispc_kv_dim);
 
-      float * const w_q = mcr_3d_to_2d(w->wq, l, dim, ispc_dim);
-      float * const w_k = mcr_3d_to_2d(w->wk, l, dim, ispc_kv_dim);
-      float * const w_v = mcr_3d_to_2d(w->wv, l, dim, ispc_kv_dim);
+    float * const w_q = mcr_3d_to_2d(w->wq, l, dim, ispc_dim);
+    float * const w_k = mcr_3d_to_2d(w->wk, l, dim, ispc_kv_dim);
+    float * const w_v = mcr_3d_to_2d(w->wv, l, dim, ispc_kv_dim);
 
     if ( g_quantize ) { 
       float * const qw_q = mcr_3d_to_2d(qw->qnt_wq, l, dim, ispc_dim);
@@ -189,15 +189,16 @@ forward(
     else {
       // qkv matmuls for this position
       /* EXPERIMENTAL 
-      matmul_prefetch(s->q,    s->xb, w_q, dim, dim);
-      matmul_prefetch(s->q,    s->xb, w_q, dim, dim);
-      matmul_prefetch(key_ptr, s->xb, w_k, dim, kv_dim);
-      */
+         matmul_prefetch(s->q,    s->xb, w_q, dim, dim);
+         matmul_prefetch(s->q,    s->xb, w_q, dim, dim);
+         matmul_prefetch(key_ptr, s->xb, w_k, dim, kv_dim);
+         */
       uint64_t t0 = __rdtsc();
 
-      matmul(s->q,    s->xb, w_q, dim, dim);
-      matmul(key_ptr, s->xb, w_k, dim, kv_dim);
-      matmul(val_ptr, s->xb, w_v, dim, kv_dim);
+      matmul(s->q,    s->xb, w_q, dim, dim); 
+      matmul(key_ptr, s->xb, w_k, dim, kv_dim); 
+      matmul(val_ptr, s->xb, w_v, dim, kv_dim); 
+
       g_n_expt += 
         2*dim*dim + 
         2*dim*kv_dim + 

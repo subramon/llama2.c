@@ -27,6 +27,8 @@ read_config(
   printf("n_kv_heads = %d \n", ptr_C->n_kv_heads);
   printf("vocab_size = %d \n", ptr_C->vocab_size );
   printf("seq_len    = %d \n", ptr_C->seq_len );
+  int kv_dim = ptr_C->dim * ptr_C->n_kv_heads / ptr_C->n_heads;
+  printf("kv_dim     = %d \n", kv_dim);
   //-------------------------------
 BYE:
   mcr_rs_munmap(X, nX);
