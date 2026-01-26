@@ -2,7 +2,19 @@
 # example override to clang: make run CC=clang
 CC = gcc
 
-all : run run_ispc cli_split_weights cli_qntz_weights
+all : run run_ispc \
+	cli_split_weights cli_qntz_weights \
+	bench_rmsnorm_ispc bench_rmsnorm_gcc \
+	bench_swiglu_ispc bench_swiglu_gcc \
+	bench_mul_v_add_s_ispc bench_mul_v_add_s_gcc \
+	bench_div_s_gcc bench_div_s_ispc \
+	bench_add_v_gcc bench_add_v_ispc \
+	bench_dot_prod_gcc bench_dot_prod_ispc \
+	bench_softmax_ispc bench_softmax_gcc \
+
+
+#	bench_prob_select_ispc bench_prob_select_gcc \
+#	bench_argmax_ispc bench_argmax_gcc
 
 LNK_FLAGS := -flto
 # LNK_FLAGS += -pg 
@@ -49,6 +61,8 @@ ISPC_SRCS += ./ispc/target_width.ispc
 
 SRCS += rmsnorm.c 
 SRCS += matmul.c 
+SRCS += matmul3.c 
+SRCS += matmul2.c 
 SRCS += matmul_qnt.c 
 SRCS += softmax.c 
 # TODO SRCS += orig_mmap_weights.c 
@@ -77,6 +91,9 @@ ISPC_FLAGS += -O3
 
 dot_prod_256.o : dot_prod_256.c
 	gcc -c ${CFLAGS} ${INCS} dot_prod_256.c -mfma -mavx2 -o dot_prod_256.o
+
+ispc/argmax.o : 
+	  ispc ${INCS} ${ISPC_FLAGS} ispc/argmax.ispc -o ispc/argmax.o 
 
 ispc/target_width.o : 
 	  ispc ${INCS} ${ISPC_FLAGS} ispc/target_width.ispc -o ispc/target_width.o 
@@ -115,6 +132,8 @@ run: run.o  ${OBJS} matmul_prefetch.o
 run_ispc: run.o  ${ISPC_OBJS} \
 	matmul_ispc_wrap.o \
 	matmul_prefetch.o \
+	matmul3.o \
+	matmul2.o \
 	matmul_qnt_ispc_wrap.o \
 	dot_prod_256.o \
 	mmap_weights.o \
@@ -127,6 +146,8 @@ run_ispc: run.o  ${ISPC_OBJS} \
 	$(CC) ${LNK_FLAGS} -o run_ispc run.o ${ISPC_OBJS} \
 	matmul_ispc_wrap.o \
 	matmul_prefetch.o \
+	matmul3.o \
+	matmul2.o \
 	matmul_qnt_ispc_wrap.o \
 	dot_prod_256.o \
 	mmap_weights.o \
@@ -202,6 +223,114 @@ cli_split_weights : cli_split_weights.o \
 testcc:
 	$(CC) -DVERBOSITY=$(VERBOSITY) -O3 -o testc test.c -lm
 	./testc
+
+bench_rmsnorm_ispc : ispc/rmsnorm.o bench_rmsnorm.o 
+	$(CC) -o bench_rmsnorm_ispc \
+	bench_rmsnorm.o \
+	ispc/rmsnorm.o \
+	${RSUTILS_SRC_ROOT}/src/librsutils.so -lm 
+
+bench_rmsnorm_gcc : rmsnorm.o bench_rmsnorm.o 
+	$(CC) -o bench_rmsnorm_gcc \
+	bench_rmsnorm.o \
+	rmsnorm.o \
+	${RSUTILS_SRC_ROOT}/src/librsutils.so -lm 
+
+bench_swiglu_ispc : ispc/swiglu.o bench_swiglu.o 
+	$(CC) -o bench_swiglu_ispc \
+	bench_swiglu.o \
+	ispc/swiglu.o \
+	${RSUTILS_SRC_ROOT}/src/librsutils.so -lm 
+
+bench_swiglu_gcc : swiglu.o bench_swiglu.o 
+	$(CC) -o bench_swiglu_gcc \
+	bench_swiglu.o \
+	swiglu.o \
+	${RSUTILS_SRC_ROOT}/src/librsutils.so -lm 
+
+bench_argmax_ispc : ispc/argmax.o bench_argmax.o 
+	$(CC) -o bench_argmax_ispc \
+	bench_argmax.o \
+	ispc/argmax.o \
+	${RSUTILS_SRC_ROOT}/src/librsutils.so -lm 
+
+bench_argmax_gcc : argmax.o bench_argmax.o 
+	$(CC) -o bench_argmax_gcc \
+	bench_argmax.o \
+	argmax.o \
+	${RSUTILS_SRC_ROOT}/src/librsutils.so -lm 
+
+bench_mul_v_add_s_ispc : ispc/mul_v_add_s.o bench_mul_v_add_s.o 
+	$(CC) -o bench_mul_v_add_s_ispc \
+ 	bench_mul_v_add_s.o \
+ 	ispc/mul_v_add_s.o \
+	${RSUTILS_SRC_ROOT}/src/librsutils.so -lm 
+
+bench_mul_v_add_s_gcc : mul_v_add_s.o bench_mul_v_add_s.o 
+	$(CC) -o bench_mul_v_add_s_gcc \
+	bench_mul_v_add_s.o \
+	mul_v_add_s.o \
+	${RSUTILS_SRC_ROOT}/src/librsutils.so -lm 
+
+bench_div_s_ispc : ispc/div_s.o bench_div_s.o 
+	$(CC) -o bench_div_s_ispc \
+ 	bench_div_s.o \
+ 	ispc/div_s.o \
+	${RSUTILS_SRC_ROOT}/src/librsutils.so -lm 
+
+bench_div_s_gcc : div_s.o bench_div_s.o 
+	$(CC) -o bench_div_s_gcc \
+	bench_div_s.o \
+	div_s.o \
+	${RSUTILS_SRC_ROOT}/src/librsutils.so -lm 
+
+bench_dot_prod_ispc : ispc/dot_prod.o bench_dot_prod.o 
+	$(CC) -o bench_dot_prod_ispc \
+ 	bench_dot_prod.o \
+ 	ispc/dot_prod.o \
+	${RSUTILS_SRC_ROOT}/src/librsutils.so -lm 
+
+bench_dot_prod_gcc : dot_prod.o bench_dot_prod.o 
+	$(CC) -o bench_dot_prod_gcc \
+	bench_dot_prod.o \
+	dot_prod.o \
+	${RSUTILS_SRC_ROOT}/src/librsutils.so -lm 
+
+bench_softmax_ispc : ispc/softmax.o bench_softmax.o 
+	$(CC) -o bench_softmax_ispc \
+ 	bench_softmax.o \
+ 	ispc/softmax.o \
+	${RSUTILS_SRC_ROOT}/src/librsutils.so -lm 
+
+bench_softmax_gcc : softmax.o bench_softmax.o 
+	$(CC) -o bench_softmax_gcc \
+	bench_softmax.o \
+	softmax.o \
+	${RSUTILS_SRC_ROOT}/src/librsutils.so -lm 
+
+bench_prob_select_ispc : ispc/prob_select.o bench_prob_select.o 
+	$(CC) -o bench_prob_select_ispc \
+ 	bench_prob_select.o \
+ 	ispc/prob_select.o \
+	${RSUTILS_SRC_ROOT}/src/librsutils.so -lm 
+
+bench_prob_select_gcc : prob_select.o bench_prob_select.o 
+	$(CC) -o bench_prob_select_gcc \
+	bench_prob_select.o \
+	prob_select.o \
+	${RSUTILS_SRC_ROOT}/src/librsutils.so -lm 
+
+bench_add_v_ispc : ispc/add_v.o bench_add_v.o 
+	$(CC) -o bench_add_v_ispc \
+ 	bench_add_v.o \
+ 	ispc/add_v.o \
+	${RSUTILS_SRC_ROOT}/src/librsutils.so -lm 
+
+bench_add_v_gcc : add_v.o bench_add_v.o 
+	$(CC) -o bench_add_v_gcc \
+	bench_add_v.o \
+	add_v.o \
+	${RSUTILS_SRC_ROOT}/src/librsutils.so -lm 
 
 .PHONY: clean
 clean:

@@ -17,6 +17,8 @@ matmul(
 {
   uint64_t t = __rdtsc();
   // W (d,n) @ x (n,) -> xout (d,)
+  // TODO Is there a value in setting chunk_size to 8
+  // Preliminary experimentation suggests minor gain in doing so
 #pragma omp parallel for schedule(static, 8)
   for ( register int i  = 0; i < d; i++) {
     register const float * const w_i = w + (i*n);

@@ -18,7 +18,7 @@ rmsnorm(
   ss += 1e-5f;
   ss = 1.0f / sqrtf(ss);
   // normalize and scale
-  for (int j = 0; j < n; j++) {
+  for ( register int j = 0; j < n; j++) {
     o[j] = weight[j] * (ss * x[j]);
   }
 }

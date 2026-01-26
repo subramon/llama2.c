@@ -14,9 +14,9 @@ matmul(
 {
   // W (d,n) @ x (n,) -> xout (d,)
   // by far the most amount of time is spent inside this little function
-  int i;
   uint64_t t = __rdtsc();
-  for (i = 0; i < d; i++) {
+#pragma omp parallel for 
+  for ( int i = 0; i < d; i++) {
     register float val = 0.0f;
     register float *w_i = w + (i*n);
     for (int j = 0; j < n; j++) {
@@ -25,6 +25,6 @@ matmul(
     xout[i] = val;
   }
   g_t_matmul += (__rdtsc() - t);
-  g_n_matmul += (n*d);
+  g_n_matmul += (2*n*d);
 }
 

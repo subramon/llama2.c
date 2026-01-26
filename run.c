@@ -1,5 +1,9 @@
+#define COLLAPSE2
+#define COLLAPSE3
+
 /* Inference for Llama-2 Transformer model in pure C */
 #include <stdio.h>
+#include <limits.h> // INT_MAX
 #include <stdbool.h>
 #include <omp.h>
 #include <stdlib.h>
@@ -18,6 +22,7 @@
 #include "consts.h"
 #include "macros.h"
 #include "matmul.h"
+#include "matmul3.h"
 #include "rmsnorm.h"
 #include "read_config.h"
 #include "softmax.h"
@@ -37,10 +42,16 @@
 bool g_quantize; 
 uint64_t g_t_prefetch;
 uint64_t g_n_prefetch;
+uint64_t g_t_logits;
+uint64_t g_n_logits;
+uint64_t g_t_mm2;
+uint64_t g_n_mm2;
 uint64_t g_t_expt;
 uint64_t g_n_expt;
 uint64_t g_t_matmul;
 uint64_t g_n_matmul;
+uint64_t g_omp_seq_cnt;
+uint64_t g_omp_par_cnt;
 uint64_t g_t_omp_loop;
 uint64_t g_n_omp_loop;
 uint64_t g_t_rmsnorm;
@@ -194,16 +205,30 @@ forward(
          matmul_prefetch(key_ptr, s->xb, w_k, dim, kv_dim);
          */
       uint64_t t0 = __rdtsc();
+      uint64_t bak_g_n_matmul = g_n_matmul;
+      uint64_t bak_g_n_expt = g_n_expt;
 
+#ifdef COLLAPSE3
+      if ( dim != kv_dim ) { go_BYE(-1); } // HACK 
+      matmul3(s->q, key_ptr, val_ptr, 
+          s->xb, s->xb, s->xb, 
+          w_q, w_k, w_v,
+          dim, dim);
+#else
       matmul(s->q,    s->xb, w_q, dim, dim); 
       matmul(key_ptr, s->xb, w_k, dim, kv_dim); 
       matmul(val_ptr, s->xb, w_v, dim, kv_dim); 
+#endif
 
       g_n_expt += 
         2*dim*dim + 
         2*dim*kv_dim + 
         2*dim*kv_dim;
       g_t_expt += __rdtsc() - t0;
+      if ( ( g_n_matmul - bak_g_n_matmul ) != 
+          ( g_n_expt - bak_g_n_expt ) ) {
+        go_BYE(-1); 
+      }
     }
 
     // RoPE relative positional encoding: 
@@ -214,53 +239,104 @@ forward(
     // TODO P3: Study taskloop in OpenMP
     // TODO P3: Consider Collapse these 2 loops into one
     uint64_t t_start =  __rdtsc();
-    // CAUTION: Parallelizing this loop slows things down for gcc
-    // STRANGE: Slows it down for gcc but not for ISPC. Puzzling...
-    // However, in one simple case, speedup was only 1.5x
-    // I don't think there is enough work to justify overhead of omp
-#pragma omp parallel for 
-    for ( int h = 0; h < p->n_heads; h++) {
-      // get the query vector for this head
-      const float* const q_h = mcr_2d_to_1d(s->q, h, ispc_head_size); 
-      // attention scores for this head
-      float* att_h = mcr_2d_to_1d(s->att, h, ispc_seq_len);
-      // iterate over all timesteps, including the current one
-      for (int t = 0; t <= pos; t++) {
-        // get the key vector for this head and at this timestep
-        float *keyptr = mcr_3d_to_1d(s->kc, l, t, p->seq_len, ispc_kv_dim);
-        keyptr += (h / kv_mul) * head_size;
+
+    // int threshold = -1;  // all parallel
+    int threshold = 448;
+    // int threshold = INT_MAX; // all sequential
+    int nloops = p->n_heads * pos;
+    if ( nloops <= threshold ) {
+      g_omp_seq_cnt++;
+      for ( int h = 0; h < p->n_heads; h++) {
+        // get the query vector for this head
+        const float* const q_h = mcr_2d_to_1d(s->q, h, ispc_head_size); 
+        // attention scores for this head
+        float* att_h = mcr_2d_to_1d(s->att, h, ispc_seq_len);
+        // iterate over all timesteps, including the current one
+        for (int t = 0; t <= pos; t++) {
+          // get the key vector for this head and at this timestep
+          float *keyptr = mcr_3d_to_1d(s->kc, l, t, p->seq_len, ispc_kv_dim);
+          keyptr += (h / kv_mul) * head_size;
 #ifdef DEBUG
-        int loff = l * p->seq_len * kv_dim; // kv cache layer offset for convenience
-        float *old_k = s->kc + loff + t * kv_dim + (h / kv_mul) * head_size;
-        if ( old_k != keyptr ) { status = -1; continue; }
+          int loff = l * p->seq_len * kv_dim; // kv cache layer offset for convenience
+          float *old_k = s->kc + loff + t * kv_dim + (h / kv_mul) * head_size;
+          if ( old_k != keyptr ) { status = -1; continue; }
 #endif
-        // calculate the attention score as the dot product of q and k
-        float score;
-        dot_prod(q_h, keyptr, head_size, &score); 
-        score /= sqrtf((float)head_size);
-        // save the score to the attention buffer
-        att_h[t] = score;
+          // calculate the attention score as the dot product of q and k
+          float score;
+          dot_prod(q_h, keyptr, head_size, &score); 
+          score /= sqrtf((float)head_size);
+          // save the score to the attention buffer
+          att_h[t] = score;
+        }
+
+        // softmax the scores to get attention weights, from 0..pos inclusively
+        softmax(att_h, pos + 1);
+
+        // weighted sum of the values, store back into xb
+        float* const xb = s->xb + h * head_size;
+        memset(xb, 0, (size_t)(head_size * sizeof(float)));
+        for (int t = 0; t <= pos; t++) {
+          // get the value vector for this head and at this timestep
+          float *valptr = mcr_3d_to_1d(s->vc, l, t, p->seq_len, ispc_kv_dim);
+          valptr += (h / kv_mul) * head_size;
+#ifdef DEBUG
+          int loff = l * p->seq_len * kv_dim; // kv cache layer offset for convenience
+          float *old_v = s->vc + loff + t * kv_dim + (h / kv_mul) * head_size;
+          if ( old_v != valptr ) { WHEREAMI; status = -1; continue; }
+#endif
+          // get the attention weight for this timestep
+          float a = att_h[t];
+          // accumulate the weighted value into xb
+          mul_v_add_s(xb, a, valptr, head_size); // xb[i] += a * v[i]
+        }
       }
-
-      // softmax the scores to get attention weights, from 0..pos inclusively
-      softmax(att_h, pos + 1);
-
-      // weighted sum of the values, store back into xb
-      float* const xb = s->xb + h * head_size;
-      memset(xb, 0, (size_t)(head_size * sizeof(float)));
-      for (int t = 0; t <= pos; t++) {
-        // get the value vector for this head and at this timestep
-        float *valptr = mcr_3d_to_1d(s->vc, l, t, p->seq_len, ispc_kv_dim);
-        valptr += (h / kv_mul) * head_size;
+    }
+    else {
+      g_omp_par_cnt++;
+#pragma omp parallel for 
+      for ( int h = 0; h < p->n_heads; h++) {
+        // get the query vector for this head
+        const float* const q_h = mcr_2d_to_1d(s->q, h, ispc_head_size); 
+        // attention scores for this head
+        float* att_h = mcr_2d_to_1d(s->att, h, ispc_seq_len);
+        // iterate over all timesteps, including the current one
+        for (int t = 0; t <= pos; t++) {
+          // get the key vector for this head and at this timestep
+          float *keyptr = mcr_3d_to_1d(s->kc, l, t, p->seq_len, ispc_kv_dim);
+          keyptr += (h / kv_mul) * head_size;
 #ifdef DEBUG
-        int loff = l * p->seq_len * kv_dim; // kv cache layer offset for convenience
-        float *old_v = s->vc + loff + t * kv_dim + (h / kv_mul) * head_size;
-        if ( old_v != valptr ) { WHEREAMI; status = -1; continue; }
+          int loff = l * p->seq_len * kv_dim; // kv cache layer offset for convenience
+          float *old_k = s->kc + loff + t * kv_dim + (h / kv_mul) * head_size;
+          if ( old_k != keyptr ) { status = -1; continue; }
 #endif
-        // get the attention weight for this timestep
-        float a = att_h[t];
-        // accumulate the weighted value into xb
-        mul_v_add_s(xb, a, valptr, head_size); // xb[i] += a * v[i]
+          // calculate the attention score as the dot product of q and k
+          float score;
+          dot_prod(q_h, keyptr, head_size, &score); 
+          score /= sqrtf((float)head_size);
+          // save the score to the attention buffer
+          att_h[t] = score;
+        }
+
+        // softmax the scores to get attention weights, from 0..pos inclusively
+        softmax(att_h, pos + 1);
+
+        // weighted sum of the values, store back into xb
+        float* const xb = s->xb + h * head_size;
+        memset(xb, 0, (size_t)(head_size * sizeof(float)));
+        for (int t = 0; t <= pos; t++) {
+          // get the value vector for this head and at this timestep
+          float *valptr = mcr_3d_to_1d(s->vc, l, t, p->seq_len, ispc_kv_dim);
+          valptr += (h / kv_mul) * head_size;
+#ifdef DEBUG
+          int loff = l * p->seq_len * kv_dim; // kv cache layer offset for convenience
+          float *old_v = s->vc + loff + t * kv_dim + (h / kv_mul) * head_size;
+          if ( old_v != valptr ) { WHEREAMI; status = -1; continue; }
+#endif
+          // get the attention weight for this timestep
+          float a = att_h[t];
+          // accumulate the weighted value into xb
+          mul_v_add_s(xb, a, valptr, head_size); // xb[i] += a * v[i]
+        }
       }
     }
     g_t_omp_loop += _rdtsc() - t_start;
@@ -269,7 +345,12 @@ forward(
 
     // final matmul to get the output of the attention
     float *wo_ptr = mcr_3d_to_2d(w->wo, l, dim, ispc_dim);
+    uint64_t bak_g_n_mm2 = g_n_mm2;
+    uint64_t bak_g_n_matmul = g_n_matmul;
+    uint64_t t0 = __rdtsc();
     matmul(s->xb2, s->xb, wo_ptr, dim, dim);
+    g_t_mm2 += __rdtsc() - t0;
+    g_n_mm2 += (uint64_t)(2*dim*dim);
 
     // residual connection back into x
     add_v(x, s->xb2, dim); 
@@ -282,15 +363,33 @@ forward(
     // first calculate self.w1(x) and self.w3(x)
     float *w1_ptr = mcr_3d_to_2d(w->w1, l, hidden_dim, ispc_dim);
     float *w3_ptr = mcr_3d_to_2d(w->w3, l, hidden_dim, ispc_dim);
+    t0 = __rdtsc();
+#ifdef COLLAPSE2
+    matmul2(s->hb, s->hb2,
+        s->xb, s->xb, 
+        w1_ptr, w3_ptr,
+        dim, hidden_dim);
+#else
     matmul(s->hb,  s->xb, w1_ptr, dim, hidden_dim);
     matmul(s->hb2, s->xb, w3_ptr, dim, hidden_dim);
+#endif
+    g_t_mm2 += __rdtsc() - t0;
+    g_n_mm2 += (uint64_t)(2*2*dim*hidden_dim);
 
     // SwiGLU non-linearity
     swiglu(s->hb, s->hb2, hidden_dim);
 
     // final matmul to get the output of the ffn
     float *w2_ptr = mcr_3d_to_2d(w->w2, l, dim, ispc_hidden_dim);
+    t0 = __rdtsc();
     matmul(s->xb, s->hb, w2_ptr, hidden_dim, dim);
+    g_t_mm2 += __rdtsc() - t0;
+    g_n_mm2 += (uint64_t)(2*dim*hidden_dim);
+
+    if ( ( g_n_matmul - bak_g_n_matmul ) != 
+        ( g_n_mm2 - bak_g_n_mm2 ) ) {
+      go_BYE(-1); 
+    }
 
     // residual connection
     add_v(x, s->xb, dim); 
@@ -300,7 +399,10 @@ forward(
   rmsnorm(x, x, w->rms_final_weight, dim);
 
   // classifier into logits TODO use pointer for wcls 
+  uint64_t  t0 = __rdtsc();
   matmul(s->logits, x, w->wcls, p->dim, p->vocab_size);
+  g_t_logits += __rdtsc() - t0;
+  g_n_logits += (uint64_t)(2*p->dim * p->vocab_size);
 BYE:
   return status;
 }
@@ -778,7 +880,7 @@ generate(
 
     // print the token as string, decode it with the Tokenizer object
     char* piece = decode(tokenizer, token, next);
-    safe_printf(piece); // same as printf("%s", piece), but skips "unsafe" bytes
+    // safe_printf(piece); // same as printf("%s", piece), but skips "unsafe" bytes
     fflush(stdout);
     token = next;
 
@@ -948,6 +1050,16 @@ int main(
     char *argv[]
     ) 
 {
+#ifdef COLLAPSE2
+  printf("YES Collapsing 2 loops \n");
+#else
+  printf("NOT Collapsing 2 loops \n");
+#endif
+#ifdef COLLAPSE3
+  printf("YES Collapsing 3 loops \n");
+#else
+  printf("NOT Collapsing 3 loops \n");
+#endif
   int status = 0;
   g_quantize = false;
   g_t_matmul = 0;
@@ -980,7 +1092,7 @@ int main(
     if ( BYTES_IN_REG != (sizeof(float) * FLOATS_IN_REG) ) { go_BYE(-1); }
   }
   omp_set_num_threads(16);
-  printf("nP = %d\n", omp_get_num_procs());
+  printf("nP = %d\n", omp_get_num_threads());
 
   // poor man's C argparse so we can override the defaults above from the command line
   if (argc >= 2) { checkpoint_path = argv[1]; } else { error_usage(); }
@@ -1045,6 +1157,14 @@ int main(
     uint64_t t2 = __rdtsc();
     printf("Total  clocks   = %" PRIu64 "\n", t2 -t1);
 
+    printf("logits   clocks    = %" PRIu64 "\n", g_t_logits); 
+    printf("logits   flops     = %" PRIu64 "\n", g_n_logits); 
+    printf("logits   Gflops/s  = %lf\n", g_n_logits*5.1/g_t_logits);
+
+    printf("mm2   clocks    = %" PRIu64 "\n", g_t_mm2); 
+    printf("mm2   flops     = %" PRIu64 "\n", g_n_mm2); 
+    printf("mm2   Gflops/s  = %lf\n", g_n_mm2*5.1/g_t_mm2);
+
     printf("expt   clocks   = %" PRIu64 "\n", g_t_expt); 
     printf("expt   flops    = %" PRIu64 "\n", g_n_expt); 
     printf("expt   Gflops/s = %lf\n", g_n_expt*5.1/g_t_expt);
@@ -1055,6 +1175,8 @@ int main(
 
     printf("omp    clocks   = %" PRIu64 "\n", g_t_omp_loop); 
     printf("omp    loops    = %" PRIu64 "\n", g_n_omp_loop); 
+    printf("omp    seq_cnt  = %" PRIu64 "\n", g_omp_seq_cnt); 
+    printf("omp    par_cnt  = %" PRIu64 "\n", g_omp_par_cnt); 
 
     printf("prefetch    clocks   = %" PRIu64 "\n", g_t_prefetch); 
     printf("prefetch    calls    = %" PRIu64 "\n", g_n_prefetch); 

@@ -212,6 +212,23 @@ For \ISPC, compiler options included
 Using Karpathy's code, it runs at XXX tokens/second. 
 Our code, using ISPC, runs at YYY tokens/second. 
 
+\subsection{Comparing \ISPC\ versus gcc}
+Benchmarking individual function shows that, for the most part, the contest
+between \ISPC\ and gcc is a wash.
+In Figure~\ref{ispc_vs_gcc}, time taken by \ISPC\ is normalized to 1.
+It is possible to use \ISPC\ for some functions and gcc for others.
+\begin{figure}
+  \begin{table}{|l|l|l|} \hline \hline \\
+    {\bf Function} & \ISPC\ & gcc \\ \hline \hline
+    {\tt dot product} & 1.0 & 1.0 \\ \hline 
+    {\tt softmax} & 1.0 & 1.40 \\ \hline 
+    {\tt rmsnorm} & 1.0 & 0.70 \\ \hline 
+    {\tt swiglu} & 1.0 & 1.25 \\ \hline 
+\verb+x[i] += y[i] * s + & 1.0 & 1.03 \\ \hline
+\verb+x[i] += y[i] + & 1.0 & 1.02 \\ \hline
+\verb+y[i] = x[i] / s + & 1.0 & 0.6 \\ \hline
+    \hline
+\end{figure}
 
 \section{Conclusion}
 
