@@ -1,9 +1,9 @@
-#include <x86intrin.h> // for rdtsc
 #include <stdint.h> // for uint64_t
 extern uint64_t g_t_matmul; // for timing 
 extern uint64_t g_n_matmul; // for timing 
 
 #include "dot_prod_qnt.h"
+#include "rdtsc.h"
 #include "matmul_qnt_ispc_wrap.h"
 void 
 matmul_qnt(
@@ -17,7 +17,7 @@ matmul_qnt(
     int d
     ) 
 {
-  uint64_t t = __rdtsc();
+  uint64_t t = rdtsc();
   // W (d,n) @ x (n,) -> xout (d,)
 #pragma omp parallel for 
   for ( register int i  = 0; i < d; i++) {
@@ -28,6 +28,6 @@ matmul_qnt(
     // __builtin_prefetch(w_i + n, 0); slows things down, hence commented
     dot_prod_qnt(offset_i, delta_i, x, wui8_i, n, &(xout[i]));
   }
-  g_t_matmul += (__rdtsc() - t);
+  g_t_matmul += (rdtsc() - t);
   g_n_matmul += (uint64_t)(d * n * 2); 
 }

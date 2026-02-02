@@ -16,12 +16,14 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <sys/mman.h>
-#include <x86intrin.h> // for rdtsc
 
 
 #include "consts.h"
 #include "macros.h"
+#include "rdtsc.h"
 #include "matmul.h"
+#include "matmul_qnt.h"
+#include "matmul2.h"
 #include "matmul3.h"
 #include "rmsnorm.h"
 #include "read_config.h"
@@ -204,7 +206,7 @@ forward(
          matmul_prefetch(s->q,    s->xb, w_q, dim, dim);
          matmul_prefetch(key_ptr, s->xb, w_k, dim, kv_dim);
          */
-      uint64_t t0 = __rdtsc();
+      uint64_t t0 = rdtsc();
       uint64_t bak_g_n_matmul = g_n_matmul;
       uint64_t bak_g_n_expt = g_n_expt;
 
@@ -224,7 +226,7 @@ forward(
         2*dim*dim + 
         2*dim*kv_dim + 
         2*dim*kv_dim;
-      g_t_expt += __rdtsc() - t0;
+      g_t_expt += rdtsc() - t0;
       if ( ( g_n_matmul - bak_g_n_matmul ) != 
           ( g_n_expt - bak_g_n_expt ) ) {
         go_BYE(-1); 
@@ -238,7 +240,7 @@ forward(
     // multihead attention. iterate over all heads in parallel
     // TODO P3: Study taskloop in OpenMP
     // TODO P3: Consider Collapse these 2 loops into one
-    uint64_t t_start =  __rdtsc();
+    uint64_t t_start =  rdtsc();
 
     // int threshold = -1;  // all parallel
     int threshold = 448;
@@ -339,7 +341,7 @@ forward(
         }
       }
     }
-    g_t_omp_loop += _rdtsc() - t_start;
+    g_t_omp_loop += rdtsc() - t_start;
     g_n_omp_loop ++;
     cBYE(status);
 
@@ -347,9 +349,9 @@ forward(
     float *wo_ptr = mcr_3d_to_2d(w->wo, l, dim, ispc_dim);
     uint64_t bak_g_n_mm2 = g_n_mm2;
     uint64_t bak_g_n_matmul = g_n_matmul;
-    uint64_t t0 = __rdtsc();
+    uint64_t t0 = rdtsc();
     matmul(s->xb2, s->xb, wo_ptr, dim, dim);
-    g_t_mm2 += __rdtsc() - t0;
+    g_t_mm2 += rdtsc() - t0;
     g_n_mm2 += (uint64_t)(2*dim*dim);
 
     // residual connection back into x
@@ -363,7 +365,7 @@ forward(
     // first calculate self.w1(x) and self.w3(x)
     float *w1_ptr = mcr_3d_to_2d(w->w1, l, hidden_dim, ispc_dim);
     float *w3_ptr = mcr_3d_to_2d(w->w3, l, hidden_dim, ispc_dim);
-    t0 = __rdtsc();
+    t0 = rdtsc();
 #ifdef COLLAPSE2
     matmul2(s->hb, s->hb2,
         s->xb, s->xb, 
@@ -373,7 +375,7 @@ forward(
     matmul(s->hb,  s->xb, w1_ptr, dim, hidden_dim);
     matmul(s->hb2, s->xb, w3_ptr, dim, hidden_dim);
 #endif
-    g_t_mm2 += __rdtsc() - t0;
+    g_t_mm2 += rdtsc() - t0;
     g_n_mm2 += (uint64_t)(2*2*dim*hidden_dim);
 
     // SwiGLU non-linearity
@@ -381,9 +383,9 @@ forward(
 
     // final matmul to get the output of the ffn
     float *w2_ptr = mcr_3d_to_2d(w->w2, l, dim, ispc_hidden_dim);
-    t0 = __rdtsc();
+    t0 = rdtsc();
     matmul(s->xb, s->hb, w2_ptr, hidden_dim, dim);
-    g_t_mm2 += __rdtsc() - t0;
+    g_t_mm2 += rdtsc() - t0;
     g_n_mm2 += (uint64_t)(2*dim*hidden_dim);
 
     if ( ( g_n_matmul - bak_g_n_matmul ) != 
@@ -399,9 +401,9 @@ forward(
   rmsnorm(x, x, w->rms_final_weight, dim);
 
   // classifier into logits TODO use pointer for wcls 
-  uint64_t  t0 = __rdtsc();
+  uint64_t  t0 = rdtsc();
   matmul(s->logits, x, w->wcls, p->dim, p->vocab_size);
-  g_t_logits += __rdtsc() - t0;
+  g_t_logits += rdtsc() - t0;
   g_n_logits += (uint64_t)(2*p->dim * p->vocab_size);
 BYE:
   return status;
@@ -1152,14 +1154,14 @@ int main(
 
   // run!
   if (strcmp(mode, "generate") == 0) {
-    uint64_t t1 = __rdtsc();
+    uint64_t t1 = rdtsc();
     status = generate(&transformer, &tokenizer, &sampler, prompt, steps);
-    uint64_t t2 = __rdtsc();
+    uint64_t t2 = rdtsc();
     printf("Total  clocks   = %" PRIu64 "\n", t2 -t1);
 
-    printf("logits   clocks    = %" PRIu64 "\n", g_t_logits); 
-    printf("logits   flops     = %" PRIu64 "\n", g_n_logits); 
-    printf("logits   Gflops/s  = %lf\n", g_n_logits*5.1/g_t_logits);
+    printf("logits clocks   = %" PRIu64 "\n", g_t_logits); 
+    printf("logits flops    = %" PRIu64 "\n", g_n_logits); 
+    printf("logits Gflops/s = %lf\n", g_n_logits*5.1/g_t_logits);
 
     printf("mm2   clocks    = %" PRIu64 "\n", g_t_mm2); 
     printf("mm2   flops     = %" PRIu64 "\n", g_n_mm2); 

@@ -1,4 +1,3 @@
-#include <x86intrin.h> // for rdtsc
 #include <stdint.h> // for uint64_t
 #include "dot_prod.h"
 void 
@@ -9,7 +8,6 @@ dot_prod(
     float * restrict ptr_rslt
     ) 
 {
-  uint64_t t = __rdtsc();
   register float sum = 0.0f;
   for ( int i = 0; i < n; i++ ) { 
     sum += x[i] * y[i];

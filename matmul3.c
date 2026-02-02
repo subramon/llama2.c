@@ -1,7 +1,8 @@
-#include <x86intrin.h> // for rdtsc
 #include <stdint.h> // for uint64_t
+#include <stdlib.h> // for NULL
 extern uint64_t g_t_matmul; // for timing 
 extern uint64_t g_n_matmul; // for timing 
+#include "rdtsc.h"
 #include "matmul3.h"
 void 
 matmul3(
@@ -20,7 +21,7 @@ matmul3(
 {
   // W (d,n) @ x (n,) -> xout (d,)
   // by far the most amount of time is spent inside this little function
-  uint64_t t = __rdtsc();
+  uint64_t t = rdtsc();
 #pragma omp parallel for 
   for ( int i = 0; i < 3*d; i++) {
     register float *w_i  = NULL;
@@ -42,7 +43,7 @@ matmul3(
     }
     xout[iprime] = val;
   }
-  g_t_matmul += (__rdtsc() - t);
+  g_t_matmul += (rdtsc() - t);
   g_n_matmul += (3*2*n*d);
 }
 

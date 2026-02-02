@@ -40,6 +40,9 @@ CFLAGS += -Wunused-label
 CFLAGS += -Wconversion
 CFLAGS += -Wpedantic  # ??? conflicts with stdatomic.h
 CFLAGS += -Wuninitialized
+CFLAGS += -Wno-incompatible-pointer-types # for ARM
+CFLAGS += -DARM # for ARM
+
 
 INCS := -I./inc/
 INCS += -I${RSUTILS_SRC_ROOT}/inc/
@@ -89,8 +92,8 @@ ISPC_FLAGS += --opt=fast-math --math-lib=fast --opt=force-aligned-memory
 # ISPC_FLAGS += --vec-report=5
 ISPC_FLAGS += -O3
 
-dot_prod_256.o : dot_prod_256.c
-	gcc -c ${CFLAGS} ${INCS} dot_prod_256.c -mfma -mavx2 -o dot_prod_256.o
+# dot_prod_256.o : dot_prod_256.c
+# 	gcc -c ${CFLAGS} ${INCS} dot_prod_256.c -mfma -mavx2 -o dot_prod_256.o
 
 ispc/argmax.o : 
 	  ispc ${INCS} ${ISPC_FLAGS} ispc/argmax.ispc -o ispc/argmax.o 
@@ -129,13 +132,14 @@ run: run.o  ${OBJS} matmul_prefetch.o
 
 #TODO Delete argmax below 
 #TODO Delete prob_select below 
+# TODO Not for ARM dot_prod_256.o 
+
 run_ispc: run.o  ${ISPC_OBJS} \
 	matmul_ispc_wrap.o \
 	matmul_prefetch.o \
 	matmul3.o \
 	matmul2.o \
 	matmul_qnt_ispc_wrap.o \
-	dot_prod_256.o \
 	mmap_weights.o \
 	qnt_mmap_weights.o \
 	rope.o \
@@ -149,7 +153,6 @@ run_ispc: run.o  ${ISPC_OBJS} \
 	matmul3.o \
 	matmul2.o \
 	matmul_qnt_ispc_wrap.o \
-	dot_prod_256.o \
 	mmap_weights.o \
 	qnt_mmap_weights.o \
 	rope.o \

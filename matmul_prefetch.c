@@ -1,7 +1,7 @@
-#include <x86intrin.h> // for rdtsc
 #include <stdint.h> // for uint64_t
 extern uint64_t g_t_prefetch;
 extern uint64_t g_n_prefetch;
+#include "rdtsc.h"
 #include "matmul_prefetch.h"
 
 void 
@@ -13,7 +13,7 @@ matmul_prefetch(
     int d
     ) 
 {
-  uint64_t t = __rdtsc();
+  uint64_t t = rdtsc();
 #pragma omp parallel for schedule(static, 8)
   for ( register int i  = 0; i < d; i++) {
     register const float * const w_i = w + (i*n);
@@ -21,6 +21,6 @@ matmul_prefetch(
     __builtin_prefetch(w_i + n, 0, 0); 
     }
   }
-  g_t_prefetch += (__rdtsc() - t);
+  g_t_prefetch += (rdtsc() - t);
   g_n_prefetch ++;
 }

@@ -1,10 +1,10 @@
-#include <x86intrin.h> // for rdtsc
 #include <stdint.h> // for uint64_t
 extern uint64_t g_t_matmul; // for timing 
 extern uint64_t g_n_matmul; // for timing 
 
 #include "dot_prod.h"
 #include "dot_prod_256.h"
+#include "rdtsc.h"
 #include "matmul_ispc_wrap.h"
 void 
 matmul(
@@ -15,7 +15,7 @@ matmul(
     int d
     ) 
 {
-  uint64_t t = __rdtsc();
+  uint64_t t = rdtsc();
   // W (d,n) @ x (n,) -> xout (d,)
   // TODO Is there a value in setting chunk_size to 8
   // Preliminary experimentation suggests minor gain in doing so
@@ -27,6 +27,6 @@ matmul(
     // No major improvement seen with following:
     // xout[i] = dot_product_fma_avx2(x, w_i, n);
   }
-  g_t_matmul += (__rdtsc() - t);
+  g_t_matmul += (rdtsc() - t);
   g_n_matmul += (uint64_t)(d * n * 2); 
 }
