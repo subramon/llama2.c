@@ -1,0 +1,35 @@
+\documentclass[letterpaper,12pt]{article}
+\begin{document}
+\newcommand{\KC}{\mathrm{KC}}
+\begin{enumerate}
+\item Let \(n_L\) be the number of layers in the network 
+\item Let \(n_P\) be the number of pos 
+\item Let \(n_S\) be the sequence length
+\end{enumerate}
+
+Let {\tt KC} be a 3D matrix with dimensions \(n_L, n_P, n_S\)
+such that 
+\begin{enumerate}
+  \item \(\KC[x]\) is a 2D matrix of dimensions \(n_P, n_S\)
+  \item \(\KC[x, y]\) is a vector of length \(n_S\)
+  \item \(\KC[x, y, z]\) is a scalar
+\end{enumerate}
+
+Let {\tt KC} be stored as a linear array at address mKC
+\begin{enumerate}
+  \item the address of mKC[x] is mkC + \(x \times (n_P \times n_S)\)
+\item the address of mKC[x, y] is 
+  mkC + \(x \times (x \times n_P \times n_S) + (y \times n_S)\)
+\item the address of mKC[x, y, z] is 
+  mkC + \(x \times (x \times n_P \times n_S) + (y \times n_S) + z\)
+\end{enumerate}
+
+\section{Instructions to LLM}
+\begin{enumerate}
+\item Write an optimized C function that computes \(\sum \KC[x, y]\).
+\item Return a {\tt .c} file --- the definition
+\item Return a {\tt .h} file --- the declarationdefinition
+\end{enumerate}
+Return 
+
+\end{document}
