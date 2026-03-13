@@ -11,8 +11,8 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <sys/mman.h>
-#include <x86intrin.h> // for rdtsc
 #include "macros.h"
+#include "rdtsc.h"
 #include "mul_v_add_s.h"
 
 int
@@ -40,9 +40,9 @@ main(
         z[k] = (float)drand48();
       }
       float s1 = (float)drand48();
-      uint64_t t0 = __rdtsc();
+      uint64_t t0 = rdtsc();
       mul_v_add_s(x, s1, y, n); 
-      uint64_t t1 = __rdtsc();
+      uint64_t t1 = rdtsc();
       t += (t1 - t0);
     }
     printf("%8d %lf \n", n, ((double)t/(double)iters));
