@@ -1,35 +1,224 @@
 \documentclass[letterpaper,12pt]{article}
 \begin{document}
-\newcommand{\KC}{\mathrm{KC}}
-\begin{enumerate}
-\item Let \(n_L\) be the number of layers in the network 
-\item Let \(n_P\) be the number of pos 
-\item Let \(n_S\) be the sequence length
-\end{enumerate}
+%% \newcommand{\TBC}{\framebox{\textbf{TO BE COMPLETED}}}
+\newcommand{\TBC}{}
 
-Let {\tt KC} be a 3D matrix with dimensions \(n_L, n_P, n_S\)
-such that 
-\begin{enumerate}
-  \item \(\KC[x]\) is a 2D matrix of dimensions \(n_P, n_S\)
-  \item \(\KC[x, y]\) is a vector of length \(n_S\)
-  \item \(\KC[x, y, z]\) is a scalar
-\end{enumerate}
+\newtheorem{definition}{Definition}
 
-Let {\tt KC} be stored as a linear array at address mKC
+
+\newcommand{\tet}{\mathtt{tet}}
+\newcommand{\KC}{\mathtt{KC}}
+\newcommand{\KV}{\mathtt{KV}}
+
+\newcommand{\xb}{\mathtt{xb}}
+
+\newcommand{\wq}{\mathtt{wq}}
+\newcommand{\wk}{\mathtt{wk}}
+\newcommand{\wv}{\mathtt{wv}}
+
+\newcommand{\wrms}{\mathtt{wrms}}
+
+\newcommand{\rmsnorm}{\mathtt{rmsnorm}}
+\newcommand{\vecmatmul}{\mathtt{vecmatmul}}
+
+\section{Background}
+\subsection{Dimensions}
+\label{dimensions}
+The constants in Table~\ref{shapes} define the sizes of the various arrays
+described later. These are from the {\tt Config struct}.
+\begin{table}[hb]
+  \begin{tabular}{|l|l|l|} \hline \hline 
+    {\bf Math} & {\bf Code} & {\bf Explanation} \\ \hline 
+    \(n_L\)  & {\tt n\_layers} & number of layers in the network  \\ \hline 
+    \(n_P\) & XX &  \TBC \\ \hline 
+    \(n_S\)  & {\tt seq\_len} & max sequence length \\ \hline 
+    \(n_D\) & {\tt dim} &  transformer dimension \\ \hline 
+     XXXX   & {\tt hidden\_dim} &  for ffn layers \\ \hline 
+    \(n_V\) &  {\tt vocab\_size} &  vocabulary size \\ \hline 
+    \(n_H\) & \verb+n_heads+ & number of query heads \\ \hline
+    \({n_H}_{\mathtt{KV}}\)   & \verb+n_kv_heads+ & number of key/value heads \\ \hline
+    \(n_{H_0}\) & \verb+n_heads * head_size+ & \TBC \\ \hline 
+    \(n_{H_1}\) & \verb+n_kv_heads * head_size+ & \TBC \\ \hline 
+    \hline 
+\end{tabular}
+    \caption{Dimensions}
+    \label{shapes}
+\end{table}
+
+\subsection{Definitions}
+
+\begin{definition}
+  \label{1D_matrix}
+  A 1D matrix is defined using a type {\tt T} and positive integer
+\(n_X\), representing the dimensions/shape.
+Let {\tt M} be a 1D matrix. Then, 
+\begin{itemize}
+\item \(\mathtt{M}[x]\) is a scalar of type {\tt T}
+\end{itemize}
+
+{\tt M} is stored as a linear array at address \(m_{\mathtt{M}}\)
+  such that 
+    \begin{itemize} 
+\item Address of \(\mathtt{M}[x]  = m_{\mathtt{M}} + x\)
+\end{itemize}
+\end{definition}
+
+\begin{definition}
+  \label{2D_matrix}
+  A 2D matrix is defined using a type {\tt T} and positive integers 
+\(n_X, n_Y\), representing the dimensions/shape.
+Let {\tt M} be a 2D matrix. Then, 
+\begin{itemize}
+\item \(\mathtt{M}[x]\) is a vector of length \(n_Y\)
+\item \(\mathtt{M}[x, y]\) is a scalar of type {\tt T}
+\end{itemize}
+
+{\tt M} is stored as a linear array at address \(m_{\mathtt{M}}\)
+  such that 
+    \begin{itemize} 
+\item Address of \(\mathtt{M}[x]  = 
+  m_{\mathtt{M}} + (x \times n_Y)\)
+\item Address of \(\mathtt{M}[x, y] = 
+  m_{\mathtt{M}} + (x \times n_Y) + y\)
+\end{itemize}
+\end{definition}
+
+\begin{definition}
+  \label{3D_matrix}
+  A 3D matrix is defined using a type {\tt T} and positive integers 
+\(n_X, n_Y, n_Z\), representing the dimensions/shape.
+Let {\tt M} be a 3D matrix. Then, 
+\begin{itemize}
+\item \(\mathtt{M}[x]\) is a 2D matrix of dimensions \(n_X, n_Y\)
+\item \(\mathtt{M}[x, y]\) is a vector of length \(n_S\)
+\item \(\mathtt{M}[x, y, z]\) is a scalar of type {\tt T}
+\end{itemize}
+
+{\tt M} is stored as a linear array at address \(m_{\mathtt{M}}\)
+  such that 
+    \begin{itemize} 
+    \item Address of \(\mathtt{M}[x] = 
+  m_{\mathtt{M}} + x \times (n_Y \times n_Z)\)
+\item Address of \(\mathtt{M}[x, y]  = 
+  m_{\mathtt{M}} + (x \times n_Y \times n_Z) + (y \times n_Z)\)
+\item Address of \(\mathtt{M}[x, y, z] = 
+  m_{\mathtt{M}} + (x \times n_X \times n_Y) + (y \times n_Z) + z\)
+\end{itemize}
+\end{definition}
+
+\section{State}
+\label{State}
+The state is represented by the data structures listed in
+Table~\ref{tbl_state_data}
+\begin{table}
+  \begin{tabular}{|l|l|l|l|l|l|} \hline \hline
+    {\bf Name} & {\bf Shape} & {\bf Comment} & \(n_X\) & \(n_Y\) & \(n_Z\) \\ \hline
+    {\tt x} & 1D array & activation at current timestamp &  \(n_D\) & & \\ \hline
+    {\tt xb} & 1D array & like {\tt x} but inside residual branch & \(n_D\) & &
+    \\ \hline
+    {\tt xb2} & 1D array & like {\tt xb} & \(n_D\) & & \\ \hline
+    {\tt KC} & 3D array & keys of kv-cache & \(n_L\) & \(n_P\) & \(n_S\)  \\
+    \hline 
+    {\tt KV} & 3D array & values of kv-cache & \(n_L\) & \(n_P\) & \(n_S\)  \\ \hline 
+    \hline
+\end{tabular}
+  \caption{Data structures for state}
+  \label{tbl_state_data}
+\end{table}
+
+\section{Weights}
+\label{Weights}
+The weights are represented by the data structures listed in
+Table~\ref{tbl_weights_data}
+
+\begin{table}
+  \begin{tabular}{|l|l|l|l|l|l|} \hline \hline
+    {\bf Name} & {\bf Shape} & {\bf Comment} & \(n_X\) & \(n_Y\) & \(n_Z\) \\ \hline
+    {\tt tet} & 2D array & Lookup table maps token IDs to vectors  & \(n_V\) & \(n_D\) & \\ \hline 
+    {\tt wk} & 3D array & key projections & \(n_L\) & \(n_D\) & \(n_{H_1}\) \\ \hline 
+    {\tt wv} & 3D array & value projections & \(n_L\) & \(n_D\) & \(n_{H_1}\) \\ \hline 
+
+    \hline
+\end{tabular}
+  \caption{Data structures for weights}
+  \label{tbl_weights_data}
+\end{table}
+
+  
+\section{Code}
+
+Given 
 \begin{enumerate}
-  \item the address of mKC[x] is mkC + \(x \times (n_P \times n_S)\)
-\item the address of mKC[x, y] is 
-  mkC + \(x \times (x \times n_P \times n_S) + (y \times n_S)\)
-\item the address of mKC[x, y, z] is 
-  mkC + \(x \times (x \times n_P \times n_S) + (y \times n_S) + z\)
-\end{enumerate}
+\item an integer \(p\) where \(0 \leq p < n_P\)
+\item an integer \(t\) where \(0 \leq t < n_V\)
+  \end{enumerate}
+
+%%--------------------------------------------
+\begin{figure}
+  \begin{tabbing} \hspace*{0.25in} \= \hspace*{0.25in} \=  \kill
+\end{tabbing}
+  \caption{Pseudo-code for \(\rmsnorm()\) function}
+  \label{fn_rmsnorm}
+\end{figure}
+%%--------------------------------------------
+\begin{figure}
+  \begin{tabbing} \hspace*{0.25in} \= \hspace*{0.25in} \=  \kill
+\end{tabbing}
+  \caption{Pseudo-code for {\tt vecmatmul()} function}
+  \label{fn_vecmatmul}
+\end{figure}
+%%--------------------------------------------
+\begin{figure}
+  \centering
+\fbox{
+  \begin{minipage}{8.5in}
+  \begin{tabbing} 
+    \hspace*{0.25in} \= \hspace*{0.25in} \=  
+    \hspace*{0.25in} \= \hspace*{0.25in} \=  
+    \kill
+    {\bf function} {\tt foo} ({\bf integer} \(t\), {\bf integer} \(p\)) \+ \\
+{\bf foreach} \(l \in \{0, 1, \ldots n_L-1\}\) {\bf do}  \+ \\ 
+
+  %% copy the token embedding into x
+  %% float* tet_ptr = mcr_2d_to_1d(w->token_embedding_table, token, ispc_dim);
+  %% memcpy(x, tet_ptr, ((size_t)dim*sizeof(float)));
+    \(x \leftarrow \tet[t]\) \\  
+    % rmsnorm(s->xb, x, w_rms_att_l, dim);
+    \(\xb \leftarrow \rmsnorm(x, \wrms[l])\) \\ 
+    \(\mathtt{q}[l] \leftarrow \vecmatmul(\xb, \wq[l])\) \\ 
+    \(\mathtt{k}[l] \leftarrow \vecmatmul(\xb, \wk[l])\) \\ 
+    \(\mathtt{v}[l] \leftarrow \vecmatmul(\xb, \wv[l])\) \\ 
+%%        matmul(s->q, s->xb, w->wq + l*dim*dim, dim, dim);
+%%        matmul(s->k, s->xb, w->wk + l*dim*kv_dim, dim, kv_dim);
+%%        matmul(s->v, s->xb, w->wv + l*dim*kv_dim, dim, kv_dim);
+    \\ 
+    {\bf endfor}  \- \\
+    {\bf end} 
+\end{tabbing}
+  \end{minipage}
+}
+  \caption{Pseudo-code for {\tt forward()} function}
+  \label{fn_forward}
+\end{figure}
+%      matmul(key_ptr, s->xb, w_k, dim, kv_dim);
+%      matmul(val_ptr, s->xb, w_v, dim, kv_dim);
 
 \section{Instructions to LLM}
+For each of the functions listed in Table~\ref{list_of_fns}
 \begin{enumerate}
-\item Write an optimized C function that computes \(\sum \KC[x, y]\).
-\item Return a {\tt .c} file --- the definition
-\item Return a {\tt .h} file --- the declarationdefinition
+  \item Write an optimized C function 
+  \item Return a {\tt .c} file --- the definition
+  \item Return a {\tt .h} file --- the declaration
 \end{enumerate}
-Return 
+\begin{table}
+\begin{tabular}{|l|l|} \hline \hline
+  {\bf Function} & Section Implemented  \\ \hline \hline
+  {\tt rmsnorm} & Section~\ref{fn_rmsnorm} \\ \hline
+  {\tt vecmatmul} & Section~\ref{fn_vecmatmul} \\ \hline
+  {\tt forward} & Section~\ref{fn_forward} \\ \hline
+\end{tabular}
+  \caption{Listing of functions}
+  \label{list_of_fns}
+\end{table}
 
 \end{document}
