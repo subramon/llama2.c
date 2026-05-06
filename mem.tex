@@ -6,9 +6,12 @@
 \newtheorem{definition}{Definition}
 
 
+\newcommand{\KV}{\mathtt{KV}}
+
+\newcommand{\nHKV}{{n_H}_{\KV}}
+\newcommand{\nDKV}{{n_D}_{\KV}}
 \newcommand{\tet}{\mathtt{tet}}
 \newcommand{\KC}{\mathtt{KC}}
-\newcommand{\KV}{\mathtt{KV}}
 
 \newcommand{\xb}{\mathtt{xb}}
 
@@ -30,13 +33,13 @@ described later. These are from the {\tt Config struct}.
   \begin{tabular}{|l|l|l|} \hline \hline 
     {\bf Math} & {\bf Code} & {\bf Explanation} \\ \hline 
     \(n_L\)  & {\tt n\_layers} & number of layers in the network  \\ \hline 
-    \(n_P\) & XX &  \TBC \\ \hline 
     \(n_S\)  & {\tt seq\_len} & max sequence length \\ \hline 
     \(n_D\) & {\tt dim} &  transformer dimension \\ \hline 
+    \(n_H\) & \verb+n_heads+ & number of query heads \\ \hline
+    \(\nDKV\)  & {\tt kv\_dim} & \((n_D \times \nHKV)/n_H\) \\ \hline
      XXXX   & {\tt hidden\_dim} &  for ffn layers \\ \hline 
     \(n_V\) &  {\tt vocab\_size} &  vocabulary size \\ \hline 
-    \(n_H\) & \verb+n_heads+ & number of query heads \\ \hline
-    \({n_H}_{\mathtt{KV}}\)   & \verb+n_kv_heads+ & number of key/value heads \\ \hline
+    \(\nHKV\)  & \verb+n_kv_heads+ & number of key/value heads \\ \hline
     \(n_{H_0}\) & \verb+n_heads * head_size+ & \TBC \\ \hline 
     \(n_{H_1}\) & \verb+n_kv_heads * head_size+ & \TBC \\ \hline 
     \hline 
@@ -49,60 +52,56 @@ described later. These are from the {\tt Config struct}.
 
 \begin{definition}
   \label{1D_matrix}
-  A 1D matrix is defined using a type {\tt T} and positive integer
+  A 1D matrix, {\tt M}, is defined using a type {\tt T} and positive integer
 \(n_X\), representing the dimensions/shape.
-Let {\tt M} be a 1D matrix. Then, 
 \begin{itemize}
 \item \(\mathtt{M}[x]\) is a scalar of type {\tt T}
-\end{itemize}
-
+\item 
 {\tt M} is stored as a linear array at address \(m_{\mathtt{M}}\)
   such that 
-    \begin{itemize} 
+    \begin{enumerate} 
 \item Address of \(\mathtt{M}[x]  = m_{\mathtt{M}} + x\)
+\end{enumerate}
 \end{itemize}
 \end{definition}
 
 \begin{definition}
   \label{2D_matrix}
-  A 2D matrix is defined using a type {\tt T} and positive integers 
+  A 2D matrix, {\tt M},  is defined using a type {\tt T} and positive integers 
 \(n_X, n_Y\), representing the dimensions/shape.
-Let {\tt M} be a 2D matrix. Then, 
 \begin{itemize}
-\item \(\mathtt{M}[x]\) is a vector of length \(n_Y\)
+  \item \(\mathtt{M}[x]\) is a vector of length \(n_Y\) and type {\tt T}
 \item \(\mathtt{M}[x, y]\) is a scalar of type {\tt T}
-\end{itemize}
-
-{\tt M} is stored as a linear array at address \(m_{\mathtt{M}}\)
+\item {\tt M} is stored as a linear array at address \(m_{\mathtt{M}}\)
   such that 
-    \begin{itemize} 
+    \begin{enumerate} 
 \item Address of \(\mathtt{M}[x]  = 
   m_{\mathtt{M}} + (x \times n_Y)\)
 \item Address of \(\mathtt{M}[x, y] = 
   m_{\mathtt{M}} + (x \times n_Y) + y\)
+\end{enumerate}
 \end{itemize}
 \end{definition}
 
 \begin{definition}
   \label{3D_matrix}
-  A 3D matrix is defined using a type {\tt T} and positive integers 
+  A 3D matrix, {\tt M}, is defined using a type {\tt T} and positive integers 
 \(n_X, n_Y, n_Z\), representing the dimensions/shape.
-Let {\tt M} be a 3D matrix. Then, 
 \begin{itemize}
-\item \(\mathtt{M}[x]\) is a 2D matrix of dimensions \(n_X, n_Y\)
-\item \(\mathtt{M}[x, y]\) is a vector of length \(n_S\)
+  \item \(\mathtt{M}[x]\) is a 2D matrix of dimensions \(n_X, n_Y\) and type
+    {\tt T}
+  \item \(\mathtt{M}[x, y]\) is a vector of length \(n_S\) and type {\tt T}
 \item \(\mathtt{M}[x, y, z]\) is a scalar of type {\tt T}
-\end{itemize}
-
-{\tt M} is stored as a linear array at address \(m_{\mathtt{M}}\)
+\item {\tt M} is stored as a linear array at address \(m_{\mathtt{M}}\)
   such that 
-    \begin{itemize} 
+    \begin{enumerate} 
     \item Address of \(\mathtt{M}[x] = 
   m_{\mathtt{M}} + x \times (n_Y \times n_Z)\)
 \item Address of \(\mathtt{M}[x, y]  = 
   m_{\mathtt{M}} + (x \times n_Y \times n_Z) + (y \times n_Z)\)
 \item Address of \(\mathtt{M}[x, y, z] = 
   m_{\mathtt{M}} + (x \times n_X \times n_Y) + (y \times n_Z) + z\)
+\end{enumerate}
 \end{itemize}
 \end{definition}
 
@@ -117,9 +116,14 @@ Table~\ref{tbl_state_data}
     {\tt xb} & 1D array & like {\tt x} but inside residual branch & \(n_D\) & &
     \\ \hline
     {\tt xb2} & 1D array & like {\tt xb} & \(n_D\) & & \\ \hline
-    {\tt KC} & 3D array & keys of kv-cache & \(n_L\) & \(n_P\) & \(n_S\)  \\
+    \hline
+    {\tt sq} & 1D array & \(n_H\) & & \\ \hline
+    {\tt sk} & 1D array & \(n_D\) & & \\ \hline
+    {\tt sk} & 1D array & \(n_D\) & & \\ \hline
+\hline
+    {\tt KC} & 3D array & keys of kv-cache & \(n_L\) & \(n_S\) & \(n_S\)  \\
     \hline 
-    {\tt KV} & 3D array & values of kv-cache & \(n_L\) & \(n_P\) & \(n_S\)  \\ \hline 
+    {\tt KV} & 3D array & values of kv-cache & \(n_L\) & \(n_S\) & \(n_S\)  \\ \hline 
     \hline
 \end{tabular}
   \caption{Data structures for state}
@@ -154,29 +158,48 @@ Given
   \end{enumerate}
 
 %%--------------------------------------------
-\begin{figure}
+  \subsection{rmsnorm}
+\begin{figure}[h]
+  \centering
+\fbox{
+  \begin{minipage}{6.5in}
   \begin{tabbing} \hspace*{0.25in} \= \hspace*{0.25in} \=  \kill
 \end{tabbing}
   \caption{Pseudo-code for \(\rmsnorm()\) function}
   \label{fn_rmsnorm}
+  \end{minipage}
+}
 \end{figure}
+\clearpage
 %%--------------------------------------------
-\begin{figure}
+  \subsection{vecmatmul}
+\begin{figure}[h]
+  \centering
+\fbox{
+  \begin{minipage}{6.5in}
   \begin{tabbing} \hspace*{0.25in} \= \hspace*{0.25in} \=  \kill
 \end{tabbing}
   \caption{Pseudo-code for {\tt vecmatmul()} function}
   \label{fn_vecmatmul}
+  \end{minipage}
+}
 \end{figure}
+\clearpage
 %%--------------------------------------------
-\begin{figure}
+\subsection{forward}
+\begin{figure}[h]
   \centering
 \fbox{
-  \begin{minipage}{8.5in}
+  \begin{minipage}{6.5in}
   \begin{tabbing} 
     \hspace*{0.25in} \= \hspace*{0.25in} \=  
     \hspace*{0.25in} \= \hspace*{0.25in} \=  
     \kill
-    {\bf function} {\tt foo} ({\bf integer} \(t\), {\bf integer} \(p\)) \+ \\
+    {\bf function} {\tt foo} ( \+ \\
+    {\bf integer} \(t\), \\
+    {\bf integer} \(p\) \- \\
+    ) \\
+    {\bf begin} \+ \\
 {\bf foreach} \(l \in \{0, 1, \ldots n_L-1\}\) {\bf do}  \+ \\ 
 
   %% copy the token embedding into x
@@ -187,7 +210,7 @@ Given
     \(\xb \leftarrow \rmsnorm(x, \wrms[l])\) \\ 
     \(\mathtt{q}[l] \leftarrow \vecmatmul(\xb, \wq[l])\) \\ 
     \(\mathtt{k}[l] \leftarrow \vecmatmul(\xb, \wk[l])\) \\ 
-    \(\mathtt{v}[l] \leftarrow \vecmatmul(\xb, \wv[l])\) \\ 
+    \(\mathtt{v}[l] \leftarrow \vecmatmul(\xb, \wv[l])\) \- \\ 
 %%        matmul(s->q, s->xb, w->wq + l*dim*dim, dim, dim);
 %%        matmul(s->k, s->xb, w->wk + l*dim*kv_dim, dim, kv_dim);
 %%        matmul(s->v, s->xb, w->wv + l*dim*kv_dim, dim, kv_dim);
@@ -202,6 +225,7 @@ Given
 \end{figure}
 %      matmul(key_ptr, s->xb, w_k, dim, kv_dim);
 %      matmul(val_ptr, s->xb, w_v, dim, kv_dim);
+\clearpage
 
 \section{Instructions to LLM}
 For each of the functions listed in Table~\ref{list_of_fns}
