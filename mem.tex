@@ -51,34 +51,37 @@ described later. These are from the {\tt Config struct}.
 \subsection{Definitions}
 
 \begin{definition}
+  \label{scalar}
+  A scalar, \(M_0\) is defined using a type \(t_0\)
+\end{definition}
+
+\begin{definition}
   \label{1D_matrix}
-  A 1D matrix, {\tt M}, is defined using a type {\tt T} and positive integer
-\(n_X\), representing the dimensions/shape.
+  A vector or 1D matrix, \(M_1\), is defined using a type \(t_1\) and positive integer
+\(n_1\), representing the dimensions/shape.
 \begin{itemize}
-\item \(\mathtt{M}[x]\) is a scalar of type {\tt T}
-\item 
-{\tt M} is stored as a linear array at address \(m_{\mathtt{M}}\)
+  \item \(M_1[j]\) is a scalar of type {\tt T} of size \(s_1\)
+\item \(M_1\) is stored as a linear array at address \(m_1\)
   such that 
     \begin{enumerate} 
-\item Address of \(\mathtt{M}[x]  = m_{\mathtt{M}} + x\)
+\item Address of \(M_1[j]  = m_1 + s_1 \times j\)
 \end{enumerate}
 \end{itemize}
 \end{definition}
 
 \begin{definition}
   \label{2D_matrix}
-  A 2D matrix, {\tt M},  is defined using a type {\tt T} and positive integers 
+  A 2D matrix, \(M_2\),  is defined using a type \(t_2\) and positive integers 
 \(n_X, n_Y\), representing the dimensions/shape.
 \begin{itemize}
-  \item \(\mathtt{M}[x]\) is a vector of length \(n_Y\) and type {\tt T}
-\item \(\mathtt{M}[x, y]\) is a scalar of type {\tt T}
-\item {\tt M} is stored as a linear array at address \(m_{\mathtt{M}}\)
+  \item \(M_2[i]\) is a 1D matrix of length \(n_Y\) and type \(t_2\)
+  \item \(M_2[i, j]\) is a scalar of type \(t_2\) and size \(s_2\)
+  \item \(M_2\) is stored as a linear array at address \(m_2\)
   such that 
     \begin{enumerate} 
-\item Address of \(\mathtt{M}[x]  = 
-  m_{\mathtt{M}} + (x \times n_Y)\)
-\item Address of \(\mathtt{M}[x, y] = 
-  m_{\mathtt{M}} + (x \times n_Y) + y\)
+      \item Address of \(M_2[i] = m_2 + s_2 \times (i \times n_Y)\)
+      \item Address of \(M_2[i, j] = m_2 + 
+        s_2 \times (i \times n_Y + j)\)
 \end{enumerate}
 \end{itemize}
 \end{definition}
@@ -105,11 +108,12 @@ described later. These are from the {\tt Config struct}.
 \end{itemize}
 \end{definition}
 
+\clearpage
 \section{State}
 \label{State}
 The state is represented by the data structures listed in
 Table~\ref{tbl_state_data}
-\begin{table}
+\begin{table}[h]
   \begin{tabular}{|l|l|l|l|l|l|} \hline \hline
     {\bf Name} & {\bf Shape} & {\bf Comment} & \(n_X\) & \(n_Y\) & \(n_Z\) \\ \hline
     {\tt x} & 1D array & activation at current timestamp &  \(n_D\) & & \\ \hline
@@ -164,6 +168,18 @@ Given
 \fbox{
   \begin{minipage}{6.5in}
   \begin{tabbing} \hspace*{0.25in} \= \hspace*{0.25in} \=  \kill
+    {\tt function} rmsnorm(\+ \\
+    \(x\), /* type is (\(M_1, n\), {\tt float}) */ \\ 
+    \(w\)  /* type is (\(M_1, n\), {\tt float}) */ \- \\
+    ) \\
+    {\bf begin} \+ \\
+    \(y\) /* type is (\(M_1, n\), {\tt float}) */ \\
+    \(\epsilon = 10^{-5}\) /* type is (\(M_0\), {\tt float}) */ \\
+    \(s \leftarrow \frac{1}{\sqrt{\epsilon + \frac{\sum {x_i}^2}{n}}}\) \\
+    \(y_i \leftarrow w_i \times x_i \times s\) \\ 
+    {\bf return} y \- \\ 
+
+    {\bf end} \\ 
 \end{tabbing}
   \caption{Pseudo-code for \(\rmsnorm()\) function}
   \label{fn_rmsnorm}
@@ -230,7 +246,8 @@ Given
 \section{Instructions to LLM}
 For each of the functions listed in Table~\ref{list_of_fns}
 \begin{enumerate}
-  \item Write an optimized C function 
+  \item Write an optimized C function using AVX2 intrinsics and SIMD
+    instructions whenever possible.
   \item Return a {\tt .c} file --- the definition
   \item Return a {\tt .h} file --- the declaration
 \end{enumerate}
@@ -238,8 +255,8 @@ For each of the functions listed in Table~\ref{list_of_fns}
 \begin{tabular}{|l|l|} \hline \hline
   {\bf Function} & Section Implemented  \\ \hline \hline
   {\tt rmsnorm} & Section~\ref{fn_rmsnorm} \\ \hline
-  {\tt vecmatmul} & Section~\ref{fn_vecmatmul} \\ \hline
-  {\tt forward} & Section~\ref{fn_forward} \\ \hline
+%%  {\tt vecmatmul} & Section~\ref{fn_vecmatmul} \\ \hline
+%%  {\tt forward} & Section~\ref{fn_forward} \\ \hline
 \end{tabular}
   \caption{Listing of functions}
   \label{list_of_fns}
