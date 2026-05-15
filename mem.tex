@@ -24,30 +24,7 @@
 \newcommand{\rmsnorm}{\mathtt{rmsnorm}}
 \newcommand{\vecmatmul}{\mathtt{vecmatmul}}
 
-\section{Background}
-\subsection{Dimensions}
-\label{dimensions}
-The constants in Table~\ref{shapes} define the sizes of the various arrays
-described later. These are from the {\tt Config struct}.
-\begin{table}[hb]
-  \begin{tabular}{|l|l|l|} \hline \hline 
-    {\bf Math} & {\bf Code} & {\bf Explanation} \\ \hline 
-    \(n_L\)  & {\tt n\_layers} & number of layers in the network  \\ \hline 
-    \(n_S\)  & {\tt seq\_len} & max sequence length \\ \hline 
-    \(n_D\) & {\tt dim} &  transformer dimension \\ \hline 
-    \(n_H\) & \verb+n_heads+ & number of query heads \\ \hline
-    \(\nDKV\)  & {\tt kv\_dim} & \((n_D \times \nHKV)/n_H\) \\ \hline
-     XXXX   & {\tt hidden\_dim} &  for ffn layers \\ \hline 
-    \(n_V\) &  {\tt vocab\_size} &  vocabulary size \\ \hline 
-    \(\nHKV\)  & \verb+n_kv_heads+ & number of key/value heads \\ \hline
-    \(n_{H_0}\) & \verb+n_heads * head_size+ & \TBC \\ \hline 
-    \(n_{H_1}\) & \verb+n_kv_heads * head_size+ & \TBC \\ \hline 
-    \hline 
-\end{tabular}
-    \caption{Dimensions}
-    \label{shapes}
-\end{table}
-
+\section{Conventions and Definitions}
 \subsection{Definitions}
 
 \begin{definition}
@@ -109,8 +86,33 @@ described later. These are from the {\tt Config struct}.
 \end{definition}
 
 \clearpage
+\subsection{Data Structures}
+See Section~\ref{state} and ~\ref{weights}.
+\subsection{Dimensions}
+\label{dimensions}
+The constants in Table~\ref{shapes} define the sizes of the various arrays
+described later. These are from the {\tt Config struct}.
+\begin{table}[hb]
+  \begin{tabular}{|l|l|l|} \hline \hline 
+    {\bf Math} & {\bf Code} & {\bf Explanation} \\ \hline 
+    \(n_L\)  & {\tt n\_layers} & number of layers in the network  \\ \hline 
+    \(n_S\)  & {\tt seq\_len} & max sequence length \\ \hline 
+    \(n_D\) & {\tt dim} &  transformer dimension \\ \hline 
+    \(n_H\) & \verb+n_heads+ & number of query heads \\ \hline
+    \(\nDKV\)  & {\tt kv\_dim} & \((n_D \times \nHKV)/n_H\) \\ \hline
+     XXXX   & {\tt hidden\_dim} &  for ffn layers \\ \hline 
+    \(n_V\) &  {\tt vocab\_size} &  vocabulary size \\ \hline 
+    \(\nHKV\)  & \verb+n_kv_heads+ & number of key/value heads \\ \hline
+    \(n_{H_0}\) & \verb+n_heads * head_size+ & \TBC \\ \hline 
+    \(n_{H_1}\) & \verb+n_kv_heads * head_size+ & \TBC \\ \hline 
+    \hline 
+\end{tabular}
+    \caption{Dimensions}
+    \label{shapes}
+\end{table}
+
 \section{State}
-\label{State}
+\label{state}
 The state is represented by the data structures listed in
 Table~\ref{tbl_state_data}
 \begin{table}[h]
@@ -135,7 +137,7 @@ Table~\ref{tbl_state_data}
 \end{table}
 
 \section{Weights}
-\label{Weights}
+\label{weights}
 The weights are represented by the data structures listed in
 Table~\ref{tbl_weights_data}
 
@@ -194,6 +196,17 @@ Given
 \fbox{
   \begin{minipage}{6.5in}
   \begin{tabbing} \hspace*{0.25in} \= \hspace*{0.25in} \=  \kill
+    {\tt function} vecmatmul(\+ \\
+    \(x\), /* type is (\(M_1, n\), {\tt float}) */ \\ 
+    \(w\),  /* type is (\(M_2, m, n\), {\tt float}) */ \\
+    \(n\), /* type is (\(M_0\), {\tt float}) */ \\
+    \(m\) /* type is (\(M_0\), {\tt float}) */ \- \\
+    ) \\
+    {\bf begin} \+ \\
+    \(y\) /* type is (\(M_1, m\), {\tt float}) */ \\
+    \(y_i \leftarrow \sum_{i=0}^{i=n-1} w[i][j] \times x[j]\) \\ 
+    {\bf return} y \- \\ 
+    {\bf end} \\ 
 \end{tabbing}
   \caption{Pseudo-code for {\tt vecmatmul()} function}
   \label{fn_vecmatmul}
