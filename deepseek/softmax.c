@@ -163,6 +163,11 @@ main(
   t3 = __rdtsc();
   printf("avx2 = %lu \n", (t2-t1));
   printf("mine = %lu \n", (t3-t2));
+  /*
+  for ( int i = 0; i < 32; i++ ) {
+    printf("%2d %f %f \n", i, y[i], z[i]);
+  }
+  */
 
 BYE:
   
