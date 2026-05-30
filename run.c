@@ -46,19 +46,22 @@ uint64_t g_t_prefetch;
 uint64_t g_n_prefetch;
 uint64_t g_t_logits;
 uint64_t g_n_logits;
+uint64_t g_t_mm3;
+uint64_t g_n_mm3;
 uint64_t g_t_mm2;
 uint64_t g_n_mm2;
-uint64_t g_t_expt;
-uint64_t g_n_expt;
-uint64_t g_t_matmul;
-uint64_t g_n_matmul;
+uint64_t g_t_mm1;
+uint64_t g_n_mm1;
+
+uint64_t g_t_dotprod;
+uint64_t g_n_dotprod;
+
 uint64_t g_omp_seq_cnt;
 uint64_t g_omp_par_cnt;
 uint64_t g_t_omp_loop;
 uint64_t g_n_omp_loop;
 uint64_t g_t_rmsnorm;
 uint64_t g_t_softmax;
-uint64_t g_t_dot_prod;
 uint64_t g_t_add_v;
 uint64_t g_t_div_s;
 uint64_t g_t_mul_v_add_s;
@@ -158,7 +161,7 @@ forward(
   size_t ispc_kv_dim = mcr_round_up(kv_dim);
   size_t ispc_head_size = mcr_round_up(head_size);
 
-  uint64_t t1, t2;
+  uint64_t t0, t1, t2, t_start, t_stop;
 
 #ifdef DEBUG
   if ( ( pos < 0 ) || ( pos >= p->seq_len ) ) { go_BYE(-1); }
@@ -206,10 +209,7 @@ forward(
          matmul_prefetch(s->q,    s->xb, w_q, dim, dim);
          matmul_prefetch(key_ptr, s->xb, w_k, dim, kv_dim);
          */
-      uint64_t t0 = rdtsc();
-      uint64_t bak_g_n_matmul = g_n_matmul;
-      uint64_t bak_g_n_expt = g_n_expt;
-
+      t0 = rdtsc();
 #ifdef COLLAPSE3
       if ( dim != kv_dim ) { go_BYE(-1); } // HACK 
       matmul3(s->q, key_ptr, val_ptr, 
@@ -221,16 +221,12 @@ forward(
       matmul(key_ptr, s->xb, w_k, dim, kv_dim); 
       matmul(val_ptr, s->xb, w_v, dim, kv_dim); 
 #endif
+      t1 = rdtsc();
+      g_t_mm3 += t1 - t0;
+      g_n_mm3 += (uint64_t)(2*dim*dim);
+      g_n_mm3 += (uint64_t)(2*dim*kv_dim);
+      g_n_mm3 += (uint64_t)(2*dim*kv_dim);
 
-      g_n_expt += 
-        2*dim*dim + 
-        2*dim*kv_dim + 
-        2*dim*kv_dim;
-      g_t_expt += rdtsc() - t0;
-      if ( ( g_n_matmul - bak_g_n_matmul ) != 
-          ( g_n_expt - bak_g_n_expt ) ) {
-        go_BYE(-1); 
-      }
     }
 
     // RoPE relative positional encoding: 
@@ -240,11 +236,11 @@ forward(
     // multihead attention. iterate over all heads in parallel
     // TODO P3: Study taskloop in OpenMP
     // TODO P3: Consider Collapse these 2 loops into one
-    uint64_t t_start =  rdtsc();
+    t_start =  rdtsc();
 
     // int threshold = -1;  // all parallel
-    int threshold = 448;
-    // int threshold = INT_MAX; // all sequential
+    // int threshold = 448;
+    int threshold = INT_MAX; // all sequential
     int nloops = p->n_heads * pos;
     if ( nloops <= threshold ) {
       g_omp_seq_cnt++;
@@ -265,7 +261,11 @@ forward(
 #endif
           // calculate the attention score as the dot product of q and k
           float score;
+          t0 = rdtsc();
           dot_prod(q_h, keyptr, head_size, &score); 
+          t1 = rdtsc();
+          g_n_dotprod += 2*head_size;
+          g_t_dotprod += (t1-t0);
           score /= sqrtf((float)head_size);
           // save the score to the attention buffer
           att_h[t] = score;
@@ -347,12 +347,12 @@ forward(
 
     // final matmul to get the output of the attention
     float *wo_ptr = mcr_3d_to_2d(w->wo, l, dim, ispc_dim);
-    uint64_t bak_g_n_mm2 = g_n_mm2;
-    uint64_t bak_g_n_matmul = g_n_matmul;
-    uint64_t t0 = rdtsc();
+
+    t0 = rdtsc();
     matmul(s->xb2, s->xb, wo_ptr, dim, dim);
-    g_t_mm2 += rdtsc() - t0;
-    g_n_mm2 += (uint64_t)(2*dim*dim);
+    t1 = rdtsc();
+    g_n_mm1 += 2 * dim * dim;
+    g_t_mm1 += (t1 - t0);
 
     // residual connection back into x
     add_v(x, s->xb2, dim); 
@@ -375,7 +375,8 @@ forward(
     matmul(s->hb,  s->xb, w1_ptr, dim, hidden_dim);
     matmul(s->hb2, s->xb, w3_ptr, dim, hidden_dim);
 #endif
-    g_t_mm2 += rdtsc() - t0;
+    t1 = rdtsc();
+    g_t_mm2 += t1 - t0;
     g_n_mm2 += (uint64_t)(2*2*dim*hidden_dim);
 
     // SwiGLU non-linearity
@@ -385,13 +386,9 @@ forward(
     float *w2_ptr = mcr_3d_to_2d(w->w2, l, dim, ispc_hidden_dim);
     t0 = rdtsc();
     matmul(s->xb, s->hb, w2_ptr, hidden_dim, dim);
-    g_t_mm2 += rdtsc() - t0;
-    g_n_mm2 += (uint64_t)(2*dim*hidden_dim);
-
-    if ( ( g_n_matmul - bak_g_n_matmul ) != 
-        ( g_n_mm2 - bak_g_n_mm2 ) ) {
-      go_BYE(-1); 
-    }
+    t1 = rdtsc();
+    g_t_mm1 += t1 - t0;
+    g_n_mm1 += (uint64_t)(2*dim*hidden_dim);
 
     // residual connection
     add_v(x, s->xb, dim); 
@@ -401,9 +398,10 @@ forward(
   rmsnorm(x, x, w->rms_final_weight, dim);
 
   // classifier into logits TODO use pointer for wcls 
-  uint64_t  t0 = rdtsc();
+  t0 = rdtsc();
   matmul(s->logits, x, w->wcls, p->dim, p->vocab_size);
-  g_t_logits += rdtsc() - t0;
+  t1 = rdtsc();
+  g_t_logits += t1 - t0;
   g_n_logits += (uint64_t)(2*p->dim * p->vocab_size);
 BYE:
   return status;
@@ -882,7 +880,7 @@ generate(
 
     // print the token as string, decode it with the Tokenizer object
     char* piece = decode(tokenizer, token, next);
-    // safe_printf(piece); // same as printf("%s", piece), but skips "unsafe" bytes
+    safe_printf(piece); // same as printf("%s", piece), but skips "unsafe" bytes
     fflush(stdout);
     token = next;
 
@@ -1064,10 +1062,22 @@ int main(
 #endif
   int status = 0;
   g_quantize = false;
-  g_t_matmul = 0;
+g_t_prefetch = 0;
+g_n_prefetch = 0;
+g_t_logits = 0;
+g_n_logits = 0;
+g_t_mm3 = 0;
+g_n_mm3 = 0;
+g_t_mm2 = 0;
+g_n_mm2 = 0;
+g_t_mm1 = 0;
+g_n_mm1 = 0;
+g_omp_seq_cnt = 0;
+g_omp_par_cnt = 0;
+g_t_omp_loop = 0;
+g_n_omp_loop = 0;
   g_t_rmsnorm = 0;
   g_t_softmax = 0;
-  g_t_dot_prod = 0;
   g_t_add_v = 0;
   g_t_div_s = 0;
   g_t_mul_v_add_s = 0;
@@ -1093,8 +1103,9 @@ int main(
     if ( FLOATS_IN_REG != x ) { go_BYE(-1); }
     if ( BYTES_IN_REG != (sizeof(float) * FLOATS_IN_REG) ) { go_BYE(-1); }
   }
-  omp_set_num_threads(16);
-  printf("nP = %d\n", omp_get_num_threads());
+  omp_set_num_threads(18);
+  printf("XXXX nP = %d\n", omp_get_num_procs());
+  printf("XXXX nP = %d\n", omp_get_max_threads());
 
   // poor man's C argparse so we can override the defaults above from the command line
   if (argc >= 2) { checkpoint_path = argv[1]; } else { error_usage(); }
@@ -1161,20 +1172,26 @@ int main(
 
     printf("logits clocks   = %" PRIu64 "\n", g_t_logits); 
     printf("logits flops    = %" PRIu64 "\n", g_n_logits); 
-    printf("logits Gflops/s = %lf\n", g_n_logits*5.1/g_t_logits);
+    printf("logits Gflops/s = %lf\n", g_n_logits/(5.1*g_t_logits));
+    printf("\n");
 
-    printf("mm2   clocks    = %" PRIu64 "\n", g_t_mm2); 
-    printf("mm2   flops     = %" PRIu64 "\n", g_n_mm2); 
-    printf("mm2   Gflops/s  = %lf\n", g_n_mm2*5.1/g_t_mm2);
+    printf("mm3    clocks    = %" PRIu64 "\n", g_t_mm3); 
+    printf("mm3    flops     = %" PRIu64 "\n", g_n_mm3); 
+    printf("mm3    Gflops/s  = %lf\n", g_n_mm3/(5.1*g_t_mm3));
+    printf("\n");
 
-    printf("expt   clocks   = %" PRIu64 "\n", g_t_expt); 
-    printf("expt   flops    = %" PRIu64 "\n", g_n_expt); 
-    printf("expt   Gflops/s = %lf\n", g_n_expt*5.1/g_t_expt);
-
-    printf("matmul clocks   = %" PRIu64 "\n", g_t_matmul); 
-    printf("matmul flops    = %" PRIu64 "\n", g_n_matmul); 
-    printf("matmul Gflops/s = %lf\n", g_n_matmul*5.1/g_t_matmul);
-
+    printf("mm2    clocks    = %" PRIu64 "\n", g_t_mm2); 
+    printf("mm2    flops     = %" PRIu64 "\n", g_n_mm2); 
+    printf("mm2    Gflops/s  = %lf\n", g_n_mm2/(5.1*g_t_mm2));
+    printf("\n");
+    printf("mm1    clocks    = %" PRIu64 "\n", g_t_mm1); 
+    printf("mm1    flops     = %" PRIu64 "\n", g_n_mm1); 
+    printf("mm1    Gflops/s  = %lf\n", g_n_mm1/(5.1*g_t_mm1));
+    printf("\n");
+    printf("dotp   clocks    = %" PRIu64 "\n", g_t_dotprod); 
+    printf("dotp   flops     = %" PRIu64 "\n", g_n_dotprod); 
+    printf("dotp   Gflops/s  = %lf\n", g_n_dotprod/(5.1*g_t_dotprod));
+    printf("\n");
     printf("omp    clocks   = %" PRIu64 "\n", g_t_omp_loop); 
     printf("omp    loops    = %" PRIu64 "\n", g_n_omp_loop); 
     printf("omp    seq_cnt  = %" PRIu64 "\n", g_omp_seq_cnt); 
@@ -1183,7 +1200,6 @@ int main(
     printf("prefetch    clocks   = %" PRIu64 "\n", g_t_prefetch); 
     printf("prefetch    calls    = %" PRIu64 "\n", g_n_prefetch); 
 
-    printf("dot_prod clocks = %" PRIu64 "\n", g_t_dot_prod); 
   } 
   else if (strcmp(mode, "chat") == 0) {
     status = chat(&transformer, &tokenizer, &sampler, prompt, 

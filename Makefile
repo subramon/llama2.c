@@ -40,8 +40,8 @@ CFLAGS += -Wunused-label
 CFLAGS += -Wconversion
 CFLAGS += -Wpedantic  # ??? conflicts with stdatomic.h
 CFLAGS += -Wuninitialized
-CFLAGS += -Wno-incompatible-pointer-types # for ARM
-CFLAGS += -DARM # for ARM
+# CFLAGS += -Wno-incompatible-pointer-types # for ARM
+# CFLAGS += -DARM # for ARM
 
 
 INCS := -I./inc/

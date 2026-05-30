@@ -64,20 +64,34 @@ will not repeat that here, referring the user to \url{https://ispc.github.io}
 instead. 
 
 \section{Modifications to Karpathy's code}
-\subsection{Cosmetic changes}
-The cosmetic changes fall into the following categories
-\be
-\item We broke out several of the compute intensive functions
-  into separate files. Localizing changes helped 
-  tune and test smaller pieces without destabilizing the code.
-\item Indentation styles can lead to  religious wars. I chose to use my own
-  style
-\item The command line parameter {\tt -q}  was added to indicate whether 
-  weights had been quantized.
-  \ee
 
-\subsection{Substantive changes}
-The most substantive change is covered in Section~\ref{ISPC_ports}
+As is often the case with performance tuning, intuition is useful but
+experimentation is vital. 
+We break up the changes we made into two sections ---
+those that didn't matter and those that did.
+
+\subsection{Changes that didn't matter}
+
+These changes seemed logical and promising but didn't yield any 
+significant performance gain. 
+we list them because them here because we suspect that
+their ``failure'' was largely because the code was simple enough that 
+
+
+
+%% \subsection{Cosmetic changes}
+%% The cosmetic changes fall into the following categories
+%% \be
+%% \item We broke out several of the compute intensive functions
+%%   into separate files. Localizing changes helped 
+%%   tune and test smaller pieces without destabilizing the code.
+%% \item Indentation styles can lead to  religious wars. I chose to use my own
+%%   style
+%% \item The command line parameter {\tt -q}  was added to indicate whether 
+%%   weights had been quantized.
+%%   \ee
+%% 
+%% \subsection{Substantive changes}
 
 \subsubsection{Hint, hint, \ldots}
 
@@ -98,7 +112,7 @@ We provided as much guidance to the compiler as possible. For example,
   lane width of the vector register.
   \ee
 
-\subsubsection{Aligning memory}
+\subsection{Aligning memory}
 
 To support vector instructions, we aligned memory on 32-byte boundaries.
 \be
@@ -125,20 +139,20 @@ is laid out in a linear array as shown below when padded to multiples of 4
 
 \subsubsection{Use of OpenMP}
 
-\subsubsection{Quantization}
-
-Quantization reduces memory pressure. In particular, 
-we chose to quantize {\tt fp32} as {\tt uint8\_t}. In doing so,
-each vector within a tensor was scaled independently. This means that a vector
-of floating point numbers of the form 
-\begin{center}
-  \{  \(  f_1, f_2, \ldots f_N \}\)
-\end{center}
-would be represented as unsigned 8-bit integers with two additional pieces of
-information 
-\begin{center}
-  \(\mathrm{min}(x), \mathrm{max}(x), \{u_1, u_2, \ldots u_N\} \)
-\end{center}
+%% \subsubsection{Quantization}
+%% 
+%% Quantization reduces memory pressure. In particular, 
+%% we chose to quantize {\tt fp32} as {\tt uint8\_t}. In doing so,
+%% each vector within a tensor was scaled independently. This means that a vector
+%% of floating point numbers of the form 
+%% \begin{center}
+%%   \{  \(  f_1, f_2, \ldots f_N \}\)
+%% \end{center}
+%% would be represented as unsigned 8-bit integers with two additional pieces of
+%% information 
+%% \begin{center}
+%%   \(\mathrm{min}(x), \mathrm{max}(x), \{u_1, u_2, \ldots u_N\} \)
+%% \end{center}
 
 
 \subsection{Nitpicks}
@@ -193,8 +207,10 @@ was not justified. Our approach was
 
 \section{Performance Results}
 
-The hardware used for benchmarking was inspired by DHH's blog post
-\url{https://world.hey.com/dhh/it-s-a-beelink-baby-243fdaf1}. It was a 
+\subsection{System Configuration}
+The hardware used for benchmarking, inspired by DHH's blog post
+\footnote{ \url{https://world.hey.com/dhh/it-s-a-beelink-baby-243fdaf1}} 
+was a 
 Beelink SEi14 Mini PC, powered by Intel Ultra 9 185H (up to 5.1GHz) 16C/22T, Mini Computer
 with 64GB DDR5 at 5600MHz.
 
@@ -209,26 +225,31 @@ For \ISPC, compiler options included
 --math-lib=fast --opt=force-aligned-memory
 \end{verbatim}
 
+\subsection{Results}
+
 Using Karpathy's code, it runs at XXX tokens/second. 
 Our code, using ISPC, runs at YYY tokens/second. 
 
 \subsection{Comparing \ISPC\ versus gcc}
 Benchmarking individual function shows that, for the most part, the contest
 between \ISPC\ and gcc is a wash.
-In Figure~\ref{ispc_vs_gcc}, time taken by \ISPC\ is normalized to 1.
+In Table~\ref{ispc_vs_gcc}, time taken by \ISPC\ is normalized to 1.
 It is possible to use \ISPC\ for some functions and gcc for others.
-\begin{figure}
-  \begin{table}{|l|l|l|} \hline \hline \\
+\begin{table}
+  \begin{tabular}{|l|l|l|} \hline \hline \\
     {\bf Function} & \ISPC\ & gcc \\ \hline \hline
     {\tt dot product} & 1.0 & 1.0 \\ \hline 
     {\tt softmax} & 1.0 & 1.40 \\ \hline 
     {\tt rmsnorm} & 1.0 & 0.70 \\ \hline 
     {\tt swiglu} & 1.0 & 1.25 \\ \hline 
-\verb+x[i] += y[i] * s + & 1.0 & 1.03 \\ \hline
-\verb+x[i] += y[i] + & 1.0 & 1.02 \\ \hline
-\verb+y[i] = x[i] / s + & 1.0 & 0.6 \\ \hline
+\verb:x[i] += y[i] * s : & 1.0 & 1.03 \\ \hline
+\verb:x[i] += y[i] : & 1.0 & 1.02 \\ \hline
+\verb:y[i] = x[i] / s : & 1.0 & 0.6 \\ \hline
     \hline
-\end{figure}
+    \end{tabular}
+      \caption{Compaarison of time taken using \ISPC\ and gcc}
+      \label{ispc_vs_gcc}
+\end{table}
 
 \section{Conclusion}
 

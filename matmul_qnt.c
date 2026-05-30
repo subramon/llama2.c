@@ -1,7 +1,4 @@
 #include <stdint.h> // for uint64_t
-extern uint64_t g_t_matmul; // for timing 
-extern uint64_t g_n_matmul; // for timing 
-#include "rdtsc.h"
 #include "matmul_qnt.h"
 void 
 matmul_qnt(
@@ -18,7 +15,6 @@ matmul_qnt(
   // W (d,n) @ x (n,) -> xout (d,)
   // by far the most amount of time is spent inside this little function
   int i;
-  uint64_t t = rdtsc();
   for (i = 0; i < d; i++) {
     register float val = 0.0f;
     const uint8_t *w_i = wui8 + (i*n);
@@ -34,7 +30,5 @@ matmul_qnt(
     }
     xout[i] = val;
   }
-  g_t_matmul += (rdtsc() - t);
-  g_n_matmul += (n*d);
 }
 
